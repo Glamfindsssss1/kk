@@ -2948,7 +2948,16 @@ function pfClamp(){
   if(Number(rMax.value) < Number(rMin.value)) rMin.value = rMax.value;
 }
 
+// loadStorefrontCategoryData() (und damit wirePriceFilter()) laeuft bei jedem
+// boot() erneut, auch bei den internen Admin-Refreshes (siehe boot()) — die
+// Preisfilter-Elemente sind aber statisches, dauerhaftes Markup, keine bei
+// jedem Render neu erzeugten Knoten. Ohne diese Sperre wuerden sich die
+// addEventListener-Aufrufe unten bei jeder Admin-Aktion aufsummieren, sodass
+// z.B. jeder Schieberegler-Schritt das Produktraster mehrfach neu rendert.
+let priceFilterWired = false;
 function wirePriceFilter(){
+  if(priceFilterWired) return;
+  priceFilterWired = true;
   const trigger = document.getElementById("pfTrigger");
   const panel   = document.getElementById("pfPanel");
   const rMin    = document.getElementById("pfMin");
