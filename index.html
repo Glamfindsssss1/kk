@@ -40,8 +40,19 @@
   /* Der graeulich-blaue Antipp-Kasten, den iOS/Safari standardmaessig auf
      jedem <button>/<a> zeigt (z.B. deutlich sichtbar auf den Style-Tabs) —
      global aus, betrifft nur den Touch-Highlight, nicht Tastatur-Fokus
-     (:focus-visible-Umrandungen bleiben ueberall erhalten). */
-  button,a{-webkit-tap-highlight-color:transparent;}
+     (:focus-visible-Umrandungen bleiben ueberall erhalten). Ersatz: ein
+     eigener, dezenter Antipp-Effekt (leichtes Schrumpfen + Abdunkeln) statt
+     des nativen Kastens — fuehlt sich eher wie eine native App an. Elemente
+     mit eigenem :active (Buy-Button, Karten, Chips …) ueberschreiben das
+     einfach mit ihrer spezifischeren Regel, hier ist nur der Standardfall
+     fuer alles andere (Tabs, Icon-Buttons, Nav-Links etc.) abgedeckt. */
+  button,a{-webkit-tap-highlight-color:transparent;
+    transition:transform .12s ease, opacity .12s ease;}
+  button:active,a:active{transform:scale(.95);opacity:.75;}
+  @media (prefers-reduced-motion: reduce){
+    button,a{transition:opacity .12s ease;}
+    button:active,a:active{transform:none;}
+  }
 
   /* ---------- Adaptable per creator: bg image comes from JS config ---------- */
   /* Scrollbars komplett ausblenden - alle Browser */
