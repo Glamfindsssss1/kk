@@ -28,6 +28,11 @@
     --topbar-h:78px;
   }
   *{box-sizing:border-box;}
+  /* Verhindert das iOS/Safari-Kontextmenu ("In Fotos sichern", "Kopieren", ...)
+     beim Long-Press auf ein Bild (Produktkarten, Avatare, Logos etc.) sowie
+     das Markieren/Ziehen von Bildern in jedem Browser. */
+  img{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;
+    -webkit-user-drag:none;user-drag:none;}
   html{scroll-padding-top:var(--topbar-h);}
   body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);}
   a{color:inherit;text-decoration:none;}
