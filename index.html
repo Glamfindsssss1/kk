@@ -528,13 +528,14 @@
   }
 
   .tab-bar-wrap{width:100%;max-width:640px;margin:26px auto 0;padding:0 16px;min-width:0;}
+  /* touch-action:pan-x sperrt Touch-Gesten auf dieser Leiste auf die
+     horizontale Achse — ein leicht schraeger Wisch scrollt sie sauber nur
+     nach links/rechts, statt sich "frei" mitzuziehen (bzw. bei rein
+     vertikaler Geste zieht stattdessen ganz normal die Seite darunter durch,
+     die Leiste faengt die Geste dann gar nicht erst ab). */
   .tab-bar{display:flex;gap:21px;overflow-x:auto;-webkit-overflow-scrolling:touch;
+    touch-action:pan-x;
     border-bottom:1px solid var(--border);min-width:0;scroll-snap-type:x proximity;}
-  /* Handy: Style-Leiste nicht mehr horizontal wegschiebbar — bricht stattdessen
-     in mehrere Zeilen um, damit trotzdem alle Styles ohne Wischen erreichbar sind. */
-  @media (max-width:849px){
-    .tab-bar{flex-wrap:wrap;overflow-x:visible;gap:10px 20px;scroll-snap-type:none;}
-  }
   .tab-item{flex:0 0 auto;scroll-snap-align:start;background:none;border:none;color:var(--muted);font-weight:800;letter-spacing:.06em;text-transform:uppercase;font-size:13px;padding:13px 0;cursor:pointer;white-space:nowrap;position:relative;transition:color .15s ease;}
   .tab-item:hover{color:var(--text);}
   .tab-item.active{color:var(--accent);}
