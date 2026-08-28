@@ -657,6 +657,7 @@
     width:100%;min-width:0;}
   .p-card{background:var(--card);border:1px solid var(--border);border-radius:16px;
     position:relative;display:flex;flex-direction:column;min-width:0;
+    -webkit-tap-highlight-color:transparent;
     transition:transform .28s cubic-bezier(.2,.8,.2,1), box-shadow .28s ease, border-color .28s ease;}
   .p-thumb{position:relative;aspect-ratio:1/1;background:linear-gradient(135deg,#f1f2f5,#e6e8ec);overflow:hidden;border-radius:15px 15px 0 0;flex:0 0 auto;}
   .p-info{padding:6px 7px 8px;border-radius:0 0 15px 15px;flex:1 1 auto;display:flex;flex-direction:column;}
@@ -684,7 +685,12 @@
   body.all-products-view .hero,
   body.all-products-view .badge-row{display:none;}
   body.all-products-view .tab-bar-wrap{margin-top:22px;}
-  .p-card:hover{transform:translateY(-5px);box-shadow:0 16px 32px rgba(20,22,26,.14);border-color:rgba(59,102,245,.35);z-index:4;}
+  /* (hover:hover) greift nur bei echten Zeigegeraeten mit Maus — auf Touch/
+     Handy bleibt der Hover-Zustand nach dem Antippen sonst haengen (der
+     blaue Rahmen faerbt sich ein und bleibt so, bis man woanders hintippt). */
+  @media (hover:hover){
+    .p-card:hover{transform:translateY(-5px);box-shadow:0 16px 32px rgba(20,22,26,.14);border-color:rgba(59,102,245,.35);z-index:4;}
+  }
   @media (prefers-reduced-motion: reduce){ .p-card{transition:none;} }
 
   /* Sprung aus der Suche: die Zielkarte hebt sich kurz hervor, damit sofort
