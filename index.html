@@ -706,6 +706,11 @@
   body.all-products-view .hero,
   body.all-products-view .badge-row{display:none;}
   body.all-products-view .tab-bar-wrap{margin-top:22px;}
+  /* Wunschliste: Style-/Kategorie-Filter ergeben hier keinen Sinn (man will
+     einfach seine gemerkten Produkte sehen, nicht sie nochmal filtern) —
+     anders als bei "Alle Produkte" bleiben sie dort also NICHT stehen. */
+  body.wishlist-view .tab-bar-wrap,
+  body.wishlist-view .cat-row-wrap{display:none;}
   /* (hover:hover) greift nur bei echten Zeigegeraeten mit Maus — auf Touch/
      Handy bleibt der Hover-Zustand nach dem Antippen sonst haengen (der
      blaue Rahmen faerbt sich ein und bleibt so, bis man woanders hintippt). */
@@ -7205,6 +7210,7 @@ function applyView(scrollTop){
   viewAll  = h === "#alle";
   wishOnly = h === "#wishlist";
   document.body.classList.toggle("all-products-view", viewAll || wishOnly);
+  document.body.classList.toggle("wishlist-view", wishOnly);
   updateWishButton();
   update();
   if(scrollTop) window.scrollTo(0, 0);
