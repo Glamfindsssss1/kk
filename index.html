@@ -2201,7 +2201,18 @@ function renderStyleTabs(){
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "tab-item" + (activeStyle===st ? " active":"");
-    btn.textContent = st === "ALL" ? T().styleAll : st;   // Wert bleibt "ALL", nur die Anzeige wechselt
+    const label = st === "ALL" ? T().styleAll : st;   // Wert bleibt "ALL", nur die Anzeige wechselt
+    // Emoji/Flaggen (z.B. das "🍾" in "GRISH🍾" oder die Flaggen vor
+    // "STYLE") lassen sich in Safari per Range nicht zuverlaessig vermessen
+    // — der Strich deckte dadurch oft nur die Buchstaben ab und endete
+    // sichtbar VOR dem Emoji. Deshalb bekommt nur der reine Buchstaben-/
+    // Ziffernkern (erstes bis letztes Wortzeichen) einen eigenen Span, an
+    // dem sich der Strich unten ausrichtet — Emoji/Symbole drumherum
+    // bleiben sichtbar, werden aber nicht mitunterstrichen.
+    const core = label.match(/[\p{L}\p{N}][\s\S]*[\p{L}\p{N}]|[\p{L}\p{N}]/u);
+    btn.innerHTML = core
+      ? `${aesc(label.slice(0, core.index))}<span class="tab-label-core">${aesc(core[0])}</span>${aesc(label.slice(core.index + core[0].length))}`
+      : aesc(label);
     btn.dataset.style = st;
     // Ohne das hier fokussiert der Browser den Button beim Antippen und
     // scrollt ihn automatisch ins Sichtfeld — weil renderStyleTabs() die
@@ -2231,21 +2242,20 @@ function renderStyleTabs(){
 }
 
 // Positioniert den blauen Strich unter dem aktiven Style-Tab exakt anhand
-// der tatsaechlich gerenderten Textbreite (per Range), statt einfach die
-// volle Button-Box (left:0/right:0) anzunehmen — die stimmt mit dem Text
-// naemlich nicht immer exakt ueberein (u.a. auf manchen Geraeten minimal
-// breiter als der sichtbare Text bei Styles mit Emoji + letter-spacing),
-// wodurch der Strich sonst leicht versetzt neben statt unter dem Namen sass.
+// des reinen Textkerns (.tab-label-core, siehe oben in renderStyleTabs),
+// statt einfach die volle Button-Box (left:0/right:0) anzunehmen — die
+// stimmt mit dem sichtbaren Label naemlich nicht zuverlaessig ueberein,
+// sobald ein Emoji im Spiel ist.
 function alignActiveTabUnderline(){
   const btn = styleTabRow.querySelector(".tab-item.active");
-  if(!btn || !btn.firstChild) return;
-  const range = document.createRange();
-  range.selectNodeContents(btn.firstChild);
-  const textRect = range.getBoundingClientRect();
+  if(!btn) return;
+  const core = btn.querySelector(".tab-label-core");
+  if(!core) return; // z.B. "ALL" ganz ohne Emoji — left:0/width:100% (CSS-Fallback) passt hier ohnehin exakt
+  const coreRect = core.getBoundingClientRect();
   const btnRect = btn.getBoundingClientRect();
-  if(!textRect.width) return; // z.B. waehrend die Leiste noch unsichtbar ist
-  btn.style.setProperty("--ul-left", (textRect.left - btnRect.left) + "px");
-  btn.style.setProperty("--ul-width", textRect.width + "px");
+  if(!coreRect.width) return; // z.B. waehrend die Leiste noch unsichtbar ist
+  btn.style.setProperty("--ul-left", (coreRect.left - btnRect.left) + "px");
+  btn.style.setProperty("--ul-width", coreRect.width + "px");
 }
 
 const productGrid  = document.getElementById("productGrid");
