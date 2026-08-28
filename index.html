@@ -1315,9 +1315,13 @@
     .a-bar-actions::-webkit-scrollbar{display:none;}
     .a-bar-actions .a-btn{height:40px;padding:0 12px;font-size:13px;white-space:nowrap;flex:0 0 auto;}
 
-    /* Produktzeile: Name bekommt die volle Breite, Knöpfe rutschen darunter */
-    .a-row{flex-wrap:wrap;row-gap:10px;}
-    .a-row-main{flex:1 1 auto;}
+    /* Produktzeile: Name bekommt die volle Breite, Knöpfe rutschen darunter.
+       flex-basis:100% statt auto erzwingt den Zeilenumbruch IMMER, unabhaengig
+       von der Titellaenge — vorher entschied die Flexbox-Zeilenumbruch-Logik
+       von Fall zu Fall anders (kurze Titel blieben neben dem Bild, lange
+       rutschten darunter), wodurch die Liste uneinheitlich aussah. */
+    .a-row{flex-wrap:wrap;row-gap:6px;}
+    .a-row-main{flex:1 1 100%;}
     .a-tools{flex:1 0 100%;justify-content:flex-end;}
     .a-thumb{width:52px;height:52px;}
     .a-drag-handle{width:40px;height:40px;}
@@ -3894,6 +3898,24 @@ function buildAdminProductRows(items, all, catLabel){
   }).join("");
 }
 
+// .a-row-title ist einzeilig (white-space:nowrap) und bekommt auf Handy die
+// volle Zeilenbreite unter dem Bild (siehe .a-row-main Media-Query oben) \u2014
+// ein sehr langer Titel kann die trotzdem noch sprengen. Statt ihn hart mit
+// "..." abzuschneiden, schrumpft die Schrift in kleinen Schritten, bis er
+// passt (oder die Mindestgroesse erreicht ist), damit der volle Titel
+// lesbar bleibt statt gekuerzt zu werden.
+function fitRowTitles(){
+  document.querySelectorAll(".a-row-title").forEach(el=>{
+    el.style.fontSize = "";
+    const min = 11;
+    let size = parseFloat(getComputedStyle(el).fontSize);
+    while(el.scrollWidth > el.clientWidth + 1 && size > min){
+      size -= 0.5;
+      el.style.fontSize = size + "px";
+    }
+  });
+}
+
 // Aktualisiert nur die Liste + Zaehler, ohne renderDashboard() komplett neu zu bauen \u2014
 // so behaelt das Suchfeld beim Tippen den Fokus (kein kompletter innerHTML-Rebuild).
 function refreshAdminProductList(){
@@ -3903,6 +3925,7 @@ function refreshAdminProductList(){
   const catLabel = k => (state.categories.find(c => c.key === k) || {}).label || k;
   const items = filteredAdminProducts();
   listEl.innerHTML = buildAdminProductRows(items, state.products, catLabel);
+  fitRowTitles();
 
   const total = state.products.length;
   const shown = items.length;
@@ -6237,6 +6260,7 @@ function wireSubcatDragReorder(){
 }
 
 function wireDashboard(){
+  fitRowTitles();
   document.getElementById("brandBackToSite").onclick = async ()=>{
     closeAdmin();
     await boot();          // frisch gespeicherte Produkte gleich auf der Website zeigen
