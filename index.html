@@ -2114,7 +2114,17 @@ function renderCatRow(){
       : (c.icon || (c.key === "all" ? ICON_GRID : ""));
     const label = T().cats[c.key] || c.label;
     btn.innerHTML = `<span class="cat-circle">${inner}</span><span class="cat-label">${label}</span>`;
-    btn.onclick = (e)=>{
+    btn.dataset.key = c.key;
+    // Ohne das hier wuerde der Browser den Button beim Antippen fokussieren
+    // und dabei automatisch "ins Sichtfeld scrollen" — weil renderCatRow()
+    // die ganze Leiste neu aufbaut, greift dabei sonst nicht die eigene
+    // Scroll-Logik unten, sondern der Browser scrollt im Zweifel die ganze
+    // Dokumentseite horizontal (genau das "niemals" aus dem Kommentar unten,
+    // das der alte Code nicht wirklich verhinderte). preventDefault auf
+    // mousedown unterbindet die native Fokusvergabe, ohne Tastatur-Fokus
+    // oder das Antippen selbst zu beeintraechtigen.
+    btn.onmousedown = (e)=> e.preventDefault();
+    btn.onclick = ()=>{
       activeCat = c.key;
       activeSubcat = "all"; // neue Hauptkategorie -> alter Unterkategorie-Filter ergibt keinen Sinn mehr
       renderCatRow();
@@ -2122,9 +2132,13 @@ function renderCatRow(){
       update();
       scrollToFilters();
       // Nur innerhalb der Kategorie-Leiste ausrichten, niemals die
-      // Dokumentseite selbst horizontal verschieben.
+      // Dokumentseite selbst horizontal verschieben. Sucht sich den NEUEN
+      // Button ueber data-key, da renderCatRow() oben bereits einen frischen
+      // Satz Buttons gebaut hat — der alte (aus dem Klick-Event) existiert
+      // an dieser Stelle schon nicht mehr im DOM.
       requestAnimationFrame(()=>{
-        e.currentTarget?.scrollIntoView?.({ block:"nearest", inline:"nearest", behavior:"auto" });
+        catRow.querySelector(`.cat-item[data-key="${CSS.escape(c.key)}"]`)
+          ?.scrollIntoView({ block:"nearest", inline:"nearest", behavior:"auto" });
       });
     };
     catRow.appendChild(btn);
@@ -2175,15 +2189,26 @@ function renderStyleTabs(){
     btn.type = "button";
     btn.className = "tab-item" + (activeStyle===st ? " active":"");
     btn.textContent = st === "ALL" ? T().styleAll : st;   // Wert bleibt "ALL", nur die Anzeige wechselt
-    btn.onclick = (e)=>{
+    btn.dataset.style = st;
+    // Ohne das hier fokussiert der Browser den Button beim Antippen und
+    // scrollt ihn automatisch ins Sichtfeld — weil renderStyleTabs() die
+    // ganze Leiste neu aufbaut, greift dabei nicht die eigene Scroll-Logik
+    // unten, sondern der Browser verschiebt im Zweifel die ganze
+    // Dokumentseite horizontal. preventDefault auf mousedown unterbindet
+    // die native Fokusvergabe, ohne Tastatur-Fokus oder das Antippen selbst
+    // zu beeintraechtigen.
+    btn.onmousedown = (e)=> e.preventDefault();
+    btn.onclick = ()=>{
       activeStyle = st;
       renderStyleTabs();
       update();
       // Den angeklickten Tab selbst sanft und NUR innerhalb der Tableiste
-      // in Sicht ruecken (inline:"nearest" haelt die Seite unangetastet) —
-      // verhindert, dass der Browser stattdessen das ganze Dokument scrollt.
+      // in Sicht ruecken (inline:"nearest" haelt die Seite unangetastet).
+      // Sucht sich den NEUEN Button ueber data-style, da renderStyleTabs()
+      // oben bereits einen frischen Satz Buttons gebaut hat.
       requestAnimationFrame(()=>{
-        e.currentTarget?.scrollIntoView?.({ block:"nearest", inline:"nearest", behavior:"auto" });
+        styleTabRow.querySelector(`.tab-item[data-style="${CSS.escape(st)}"]`)
+          ?.scrollIntoView({ block:"nearest", inline:"nearest", behavior:"auto" });
       });
     };
     styleTabRow.appendChild(btn);
