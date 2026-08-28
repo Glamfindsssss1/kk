@@ -555,7 +555,15 @@
   .tab-item{flex:0 0 auto;scroll-snap-align:start;background:none;border:none;color:var(--muted);font-weight:800;letter-spacing:.06em;text-transform:uppercase;font-size:13px;padding:13px 0;cursor:pointer;white-space:nowrap;position:relative;transition:color .15s ease;}
   .tab-item:hover{color:var(--text);}
   .tab-item.active{color:var(--accent);}
-  .tab-item.active::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:3px;background:var(--accent);border-radius:2px;}
+  /* left/width kommen als Inline-Custom-Properties von alignActiveTabUnderline()
+     (siehe Script) — links:0/rechts:0 traf die tatsaechliche Textbreite auf
+     manchen Geraeten nicht exakt (u.a. Safari haengt an Text mit letter-
+     spacing offenbar noch etwas Platz nach dem letzten Zeichen an, wodurch
+     der Strich neben Emoji-Styles leicht versetzt wirkte); der Fallback
+     0/100% gilt nur, falls das Script aus irgendeinem Grund nicht lief. */
+  .tab-item.active::after{content:"";position:absolute;
+    left:var(--ul-left,0);width:var(--ul-width,100%);
+    bottom:-1px;height:3px;background:var(--accent);border-radius:2px;}
 
   .cat-row-wrap{width:100%;max-width:640px;margin:8px auto 0;padding:0 16px;min-width:0;}
   .cat-row{overflow-x:auto;-webkit-overflow-scrolling:touch;min-width:0;
@@ -2219,6 +2227,25 @@ function renderStyleTabs(){
     styleTabRow.appendChild(btn);
   });
   styleTabRow.scrollLeft = prevScroll;
+  alignActiveTabUnderline();
+}
+
+// Positioniert den blauen Strich unter dem aktiven Style-Tab exakt anhand
+// der tatsaechlich gerenderten Textbreite (per Range), statt einfach die
+// volle Button-Box (left:0/right:0) anzunehmen — die stimmt mit dem Text
+// naemlich nicht immer exakt ueberein (u.a. auf manchen Geraeten minimal
+// breiter als der sichtbare Text bei Styles mit Emoji + letter-spacing),
+// wodurch der Strich sonst leicht versetzt neben statt unter dem Namen sass.
+function alignActiveTabUnderline(){
+  const btn = styleTabRow.querySelector(".tab-item.active");
+  if(!btn || !btn.firstChild) return;
+  const range = document.createRange();
+  range.selectNodeContents(btn.firstChild);
+  const textRect = range.getBoundingClientRect();
+  const btnRect = btn.getBoundingClientRect();
+  if(!textRect.width) return; // z.B. waehrend die Leiste noch unsichtbar ist
+  btn.style.setProperty("--ul-left", (textRect.left - btnRect.left) + "px");
+  btn.style.setProperty("--ul-width", textRect.width + "px");
 }
 
 const productGrid  = document.getElementById("productGrid");
