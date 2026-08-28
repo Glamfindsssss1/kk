@@ -397,6 +397,25 @@
     .promo-bar-cta{padding:9px;border-radius:999px;}
   }
 
+  /* "Nach oben"-Button: taucht nur auf, sobald man tiefer als einen
+     Bildschirm nach unten gescrollt hat (siehe updateBackToTop() im Script),
+     und nur in der Handy-Ansicht (Media-Query unten) — auf Tablet/Desktop
+     bleibt er immer versteckt. bottom rueckt hoch, sobald die Promo-Leiste
+     offen ist, damit sich beide nicht ueberlappen. */
+  .back-to-top{position:fixed;right:16px;bottom:calc(20px + env(safe-area-inset-bottom));
+    z-index:55;width:46px;height:46px;border-radius:999px;border:1px solid var(--border);
+    background:var(--card);color:var(--text);display:flex;align-items:center;justify-content:center;
+    box-shadow:0 8px 22px rgba(20,22,26,.16);cursor:pointer;
+    opacity:0;transform:translateY(10px);pointer-events:none;
+    transition:opacity .2s ease, transform .2s ease, bottom .2s ease;}
+  .back-to-top.visible{opacity:1;transform:none;pointer-events:auto;}
+  .back-to-top svg{width:20px;height:20px;}
+  .back-to-top:hover{border-color:var(--accent);color:var(--accent);}
+  .back-to-top:focus-visible{outline:3px solid rgba(59,102,245,.4);outline-offset:2px;}
+  body.promo-bar-open .back-to-top{bottom:calc(88px + env(safe-area-inset-bottom));}
+  @media (prefers-reduced-motion: reduce){ .back-to-top{transition:opacity .2s ease, bottom .2s ease;} }
+  @media (min-width:850px){ .back-to-top{display:none;} }
+
   /* Verwandlung: die grosse Karte zieht sich zur unteren Leiste zusammen.
      Diese Regeln stehen bewusst NACH den .signup-popup-* Regeln, damit sie
      bei gleicher Spezifitaet gewinnen, solange .signup-popup-open aktiv bleibt. */
@@ -1534,6 +1553,10 @@
   </div>
 </div>
 
+<button type="button" class="back-to-top" id="backToTop">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg>
+</button>
+
 <script>
 
 (()=>{var Bs=Symbol.for("@supabase/supabase-js.traceContextExtractor");function fr(){return globalThis[Bs]}function ie(t,e){var r={};for(var s in t)Object.prototype.hasOwnProperty.call(t,s)&&e.indexOf(s)<0&&(r[s]=t[s]);if(t!=null&&typeof Object.getOwnPropertySymbols=="function")for(var n=0,s=Object.getOwnPropertySymbols(t);n<s.length;n++)e.indexOf(s[n])<0&&Object.prototype.propertyIsEnumerable.call(t,s[n])&&(r[s[n]]=t[s[n]]);return r}function pr(t,e,r,s){function n(i){return i instanceof r?i:new r(function(o){o(i)})}return new(r||(r=Promise))(function(i,o){function a(u){try{c(s.next(u))}catch(h){o(h)}}function l(u){try{c(s.throw(u))}catch(h){o(h)}}function c(u){u.done?i(u.value):n(u.value).then(a,l)}c((s=s.apply(t,e||[])).next())})}var gr=t=>t?(...e)=>t(...e):(...e)=>fetch(...e);var pe=class extends Error{constructor(e,r="FunctionsError",s){super(e),this.name=r,this.context=s}toJSON(){return{name:this.name,message:this.message,context:this.context}}},Pe=class extends pe{constructor(e){super("Failed to send a request to the Edge Function","FunctionsFetchError",e)}},ge=class extends pe{constructor(e){super("Relay Error invoking the Edge Function","FunctionsRelayError",e)}},ye=class extends pe{constructor(e){super("Edge Function returned a non-2xx status code","FunctionsHttpError",e)}},Ie;(function(t){t.Any="any",t.ApNortheast1="ap-northeast-1",t.ApNortheast2="ap-northeast-2",t.ApSouth1="ap-south-1",t.ApSoutheast1="ap-southeast-1",t.ApSoutheast2="ap-southeast-2",t.CaCentral1="ca-central-1",t.EuCentral1="eu-central-1",t.EuWest1="eu-west-1",t.EuWest2="eu-west-2",t.EuWest3="eu-west-3",t.SaEast1="sa-east-1",t.UsEast1="us-east-1",t.UsWest1="us-west-1",t.UsWest2="us-west-2"})(Ie||(Ie={}));var je=class{constructor(e,{headers:r={},customFetch:s,region:n=Ie.Any}={}){this.url=e,this.headers=r,this.region=n,this.fetch=gr(s)}setAuth(e){this.headers.Authorization=`Bearer ${e}`}invoke(e){return pr(this,arguments,void 0,function*(r,s={}){var n,i;let o,a,l;try{let{headers:c,method:u,body:h,signal:f,timeout:d}=s,p={},{region:g}=s;g||(g=this.region);let m=new URL(`${this.url}/${r}`);g&&g!=="any"&&(p["x-region"]=g,m.searchParams.set("forceFunctionRegion",g));let v,b=!!c&&Object.keys(c).some(Ce=>Ce.toLowerCase()==="content-type");h&&!b?typeof Blob<"u"&&h instanceof Blob||h instanceof ArrayBuffer?(p["Content-Type"]="application/octet-stream",v=h):typeof h=="string"?(p["Content-Type"]="text/plain",v=h):typeof FormData<"u"&&h instanceof FormData?v=h:(p["Content-Type"]="application/json",v=JSON.stringify(h)):h&&typeof h!="string"&&!(typeof Blob<"u"&&h instanceof Blob)&&!(h instanceof ArrayBuffer)&&!(typeof FormData<"u"&&h instanceof FormData)?v=JSON.stringify(h):v=h;let _=f;d&&(a=new AbortController,o=setTimeout(()=>a.abort(),d),f?(_=a.signal,l=()=>a.abort(),f.addEventListener("abort",l)):_=a.signal);let E=yield this.fetch(m.toString(),{method:u||"POST",headers:Object.assign(Object.assign(Object.assign({},p),this.headers),c),body:v,signal:_}).catch(Ce=>{throw new Pe(Ce)}),j=E.headers.get("x-relay-error");if(j&&j==="true")throw new ge(E);if(!E.ok)throw new ye(E);let k=((n=E.headers.get("Content-Type"))!==null&&n!==void 0?n:"text/plain").split(";")[0].trim().toLowerCase(),A;return k==="application/json"?A=yield E.json():k==="application/octet-stream"||k==="application/pdf"?A=yield E.blob():k==="text/event-stream"?A=E:k==="multipart/form-data"?A=yield E.formData():A=yield E.text(),{data:A,error:null,response:E}}catch(c){return{data:null,error:c,response:c instanceof ye||c instanceof ge?c.context:void 0}}finally{o&&clearTimeout(o),l&&((i=s.signal)===null||i===void 0||i.removeEventListener("abort",l))}})}};var yr=t=>Math.min(1e3*2**t,3e4),Fs=[520,503],_r=["GET","HEAD","OPTIONS"],ot=class extends Error{constructor(t){super(t.message),this.name="PostgrestError",this.details=t.details,this.hint=t.hint,this.code=t.code}toJSON(){return{name:this.name,message:this.message,details:this.details,hint:this.hint,code:this.code}}};function Ne(t){"@babel/helpers - typeof";return Ne=typeof Symbol=="function"&&typeof Symbol.iterator=="symbol"?function(e){return typeof e}:function(e){return e&&typeof Symbol=="function"&&e.constructor===Symbol&&e!==Symbol.prototype?"symbol":typeof e},Ne(t)}function Ms(t,e){if(Ne(t)!="object"||!t)return t;var r=t[Symbol.toPrimitive];if(r!==void 0){var s=r.call(t,e||"default");if(Ne(s)!="object")return s;throw new TypeError("@@toPrimitive must return a primitive value.")}return(e==="string"?String:Number)(t)}function qs(t){var e=Ms(t,"string");return Ne(e)=="symbol"?e:e+""}function Hs(t,e,r){return(e=qs(e))in t?Object.defineProperty(t,e,{value:r,enumerable:!0,configurable:!0,writable:!0}):t[e]=r,t}function mr(t,e){var r=Object.keys(t);if(Object.getOwnPropertySymbols){var s=Object.getOwnPropertySymbols(t);e&&(s=s.filter(function(n){return Object.getOwnPropertyDescriptor(t,n).enumerable})),r.push.apply(r,s)}return r}function we(t){for(var e=1;e<arguments.length;e++){var r=arguments[e]!=null?arguments[e]:{};e%2?mr(Object(r),!0).forEach(function(s){Hs(t,s,r[s])}):Object.getOwnPropertyDescriptors?Object.defineProperties(t,Object.getOwnPropertyDescriptors(r)):mr(Object(r)).forEach(function(s){Object.defineProperty(t,s,Object.getOwnPropertyDescriptor(r,s))})}return t}function wr(t,e){return new Promise(r=>{if(e?.aborted){r();return}let s=setTimeout(()=>{e?.removeEventListener("abort",n),r()},t);function n(){clearTimeout(s),r()}e?.addEventListener("abort",n)})}function Ks(t,e,r,s){return!(!s||r>=3||!_r.includes(t)||!Fs.includes(e))}var Ws=class{constructor(t){var e,r,s,n,i;this.shouldThrowOnError=!1,this.retryEnabled=!0,this.method=t.method,this.url=t.url,this.headers=new Headers(t.headers),this.schema=t.schema,this.body=t.body,this.shouldThrowOnError=(e=t.shouldThrowOnError)!==null&&e!==void 0?e:!1,this.signal=t.signal,this.isMaybeSingle=(r=t.isMaybeSingle)!==null&&r!==void 0?r:!1,this.shouldStripNulls=(s=t.shouldStripNulls)!==null&&s!==void 0?s:!1,this.urlLengthLimit=(n=t.urlLengthLimit)!==null&&n!==void 0?n:8e3,this.retryEnabled=(i=t.retry)!==null&&i!==void 0?i:!0,t.fetch?this.fetch=t.fetch:this.fetch=fetch}throwOnError(){return this.shouldThrowOnError=!0,this}stripNulls(){if(this.headers.get("Accept")==="text/csv")throw new Error("stripNulls() cannot be used with csv()");return this.shouldStripNulls=!0,this}setHeader(t,e){return this.headers=new Headers(this.headers),this.headers.set(t,e),this}retry(t){return this.retryEnabled=t,this}then(t,e){var r=this;if(this.schema===void 0||(["GET","HEAD"].includes(this.method)?this.headers.set("Accept-Profile",this.schema):this.headers.set("Content-Profile",this.schema)),this.method!=="GET"&&this.method!=="HEAD"&&this.headers.set("Content-Type","application/json"),this.shouldStripNulls){let o=this.headers.get("Accept");o==="application/vnd.pgrst.object+json"?this.headers.set("Accept","application/vnd.pgrst.object+json;nulls=stripped"):(!o||o==="application/json")&&this.headers.set("Accept","application/vnd.pgrst.array+json;nulls=stripped")}let s=this.fetch,i=(async()=>{let o=0;for(;;){let c={};r.headers.forEach((h,f)=>{c[f]=h}),o>0&&(c["X-Retry-Count"]=String(o));let u;try{u=await s(r.url.toString(),{method:r.method,headers:c,body:JSON.stringify(r.body,(h,f)=>typeof f=="bigint"?f.toString():f),signal:r.signal})}catch(h){if(h?.name==="AbortError"||h?.code==="ABORT_ERR"||!_r.includes(r.method))throw h;if(r.retryEnabled&&o<3){let f=yr(o);o++,await wr(f,r.signal);continue}throw h}if(Ks(r.method,u.status,o,r.retryEnabled)){var a,l;let h=(a=(l=u.headers)===null||l===void 0?void 0:l.get("Retry-After"))!==null&&a!==void 0?a:null,f=h!==null?Math.max(0,parseInt(h,10)||0)*1e3:yr(o);await u.text(),o++,await wr(f,r.signal);continue}return await r.processResponse(u)}})();return this.shouldThrowOnError||(i=i.catch(o=>{var a;let l="",c="",u="",h=o?.cause;if(h){var f,d,p,g;let b=(f=h?.message)!==null&&f!==void 0?f:"",_=(d=h?.code)!==null&&d!==void 0?d:"";l=`${(p=o?.name)!==null&&p!==void 0?p:"FetchError"}: ${o?.message}`,l+=`
@@ -1587,7 +1610,7 @@ const I18N = {
     hitsOne:"1 Treffer", hitsMany:"{n} Treffer", reset:"Alle Filter zur\u00fccksetzen",
     searchOpen:"Suche \u00f6ffnen", searchClose:"Suche schlie\u00dfen", searchLabel:"Produkte durchsuchen",
     searchPlaceholder:"In der Auswahl von {handle} suchen \u2026",
-    wishAdd:"Zur Wunschliste hinzuf\u00fcgen", wishRemove:"Von der Wunschliste entfernen",
+    wishAdd:"Zur Wunschliste hinzuf\u00fcgen", backToTop:"Nach oben", wishRemove:"Von der Wunschliste entfernen",
     langLabel:"Sprache",
     styleFilter:"Style \u201e{v}\u201c", catFilter:"Kategorie \u201e{v}\u201c", and:" und ", anySelection:"dieser Auswahl",
     emptySearch:"Keine Treffer f\u00fcr \u201e{q}\u201c. Versuch es k\u00fcrzer oder such nach einer Kategorie.",
@@ -1605,7 +1628,7 @@ const I18N = {
     hitsOne:"1 result", hitsMany:"{n} results", reset:"Reset all filters",
     searchOpen:"Open search", searchClose:"Close search", searchLabel:"Search products",
     searchPlaceholder:"Search {handle}\u2019s picks \u2026",
-    wishAdd:"Add to wishlist", wishRemove:"Remove from wishlist",
+    wishAdd:"Add to wishlist", backToTop:"Back to top", wishRemove:"Remove from wishlist",
     langLabel:"Language",
     styleFilter:"style \u201c{v}\u201d", catFilter:"category \u201c{v}\u201d", and:" and ", anySelection:"this selection",
     emptySearch:"No results for \u201c{q}\u201d. Try a shorter word, or search for a category.",
@@ -1623,7 +1646,7 @@ const I18N = {
     hitsOne:"1 resultado", hitsMany:"{n} resultados", reset:"Restablecer los filtros",
     searchOpen:"Abrir la b\u00fasqueda", searchClose:"Cerrar la b\u00fasqueda", searchLabel:"Buscar productos",
     searchPlaceholder:"Buscar en la selecci\u00f3n de {handle} \u2026",
-    wishAdd:"A\u00f1adir a la lista de deseos", wishRemove:"Quitar de la lista de deseos",
+    wishAdd:"A\u00f1adir a la lista de deseos", backToTop:"Volver arriba", wishRemove:"Quitar de la lista de deseos",
     langLabel:"Idioma",
     styleFilter:"el estilo \u00ab{v}\u00bb", catFilter:"la categor\u00eda \u00ab{v}\u00bb", and:" y ", anySelection:"esta selecci\u00f3n",
     emptySearch:"Sin resultados para \u00ab{q}\u00bb. Prueba con menos letras o busca una categor\u00eda.",
@@ -1641,7 +1664,7 @@ const I18N = {
     hitsOne:"1 r\u00e9sultat", hitsMany:"{n} r\u00e9sultats", reset:"R\u00e9initialiser les filtres",
     searchOpen:"Ouvrir la recherche", searchClose:"Fermer la recherche", searchLabel:"Rechercher des produits",
     searchPlaceholder:"Rechercher dans la collection de {handle} \u2026",
-    wishAdd:"Ajouter \u00e0 la liste d\u2019envies", wishRemove:"Retirer de la liste d\u2019envies",
+    wishAdd:"Ajouter \u00e0 la liste d\u2019envies", backToTop:"Retour en haut", wishRemove:"Retirer de la liste d\u2019envies",
     langLabel:"Langue",
     styleFilter:"le style \u00ab\u00a0{v}\u00a0\u00bb", catFilter:"la cat\u00e9gorie \u00ab\u00a0{v}\u00a0\u00bb", and:" et ", anySelection:"cette s\u00e9lection",
     emptySearch:"Aucun r\u00e9sultat pour \u00ab\u00a0{q}\u00a0\u00bb. Essaie un mot plus court ou cherche une cat\u00e9gorie.",
@@ -2494,6 +2517,21 @@ window.addEventListener("scroll", updateTopbarSolidity, { passive:true });
 updateTopbarSolidity();
 const searchOverlay = document.getElementById("searchOverlay");
 
+// ---------- "Nach oben"-Button ----------
+// Erscheint erst, sobald man mehr als einen Bildschirm tief gescrollt hat —
+// ganz oben auf der Seite waere er nur im Weg. Nur in der Handy-Ansicht
+// sichtbar (siehe Media-Query bei .back-to-top).
+const backToTopBtn = document.getElementById("backToTop");
+function updateBackToTop(){
+  backToTopBtn.classList.toggle("visible", window.scrollY > window.innerHeight);
+}
+window.addEventListener("scroll", updateBackToTop, { passive:true });
+updateBackToTop();
+backToTopBtn.addEventListener("click", ()=>{
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  window.scrollTo({ top:0, behavior: reduce ? "auto" : "smooth" });
+});
+
 // ---------- Sprachumschalter ----------
 const langWrap   = document.getElementById("langWrap");
 const langToggle = document.getElementById("langToggle");
@@ -2624,6 +2662,7 @@ function applyLang(){
   document.querySelector('label[for="productSearch"]').textContent = t.searchLabel;
   document.getElementById("soHeading").textContent = t.searchLabel;
   searchClear.setAttribute("aria-label", t.searchClearInput);
+  backToTopBtn.setAttribute("aria-label", t.backToTop);
   searchClose.textContent = t.searchCancel;
   searchInput.placeholder = fill(t.searchPlaceholder, {handle: CREATOR.handle});
   if(document.body.classList.contains("search-open")) renderOverlay();
