@@ -1030,11 +1030,31 @@
 
   @media (max-width:640px){
     .a-head-row{flex-direction:column;}
-    .an-filters{width:100%;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;
-      padding-bottom:2px;scrollbar-width:none;}
-    .an-filters::-webkit-scrollbar{display:none;}
-    .an-period{flex:0 0 auto;}
-    .an-select{flex:0 0 auto;}
+    /* WICHTIG: .an-filters selbst darf hier NICHT overflow-x:auto bekommen —
+       das wuerde (per Spezifikation kippt eine gesetzte Achse automatisch
+       auch die andere von "visible" auf "auto") die Y-Achse mit abschneiden
+       und damit das aufklappende .an-select-menu/.cur-menu unsichtbar
+       machen, obwohl der Button reagiert ("Leiste laesst sich nicht
+       oeffnen"). Stattdessen wrappt .an-filters normal, nur der
+       Zeitraum-Umschalter (.an-period) — der selbst kein Dropdown hat,
+       also nichts zu verschlucken gibt — bekommt sein eigenes horizontales
+       Scrollen, falls er allein nicht in eine Zeile passt. */
+    .an-filters{width:100%;flex-wrap:wrap;row-gap:10px;}
+    .an-period{flex:0 1 auto;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;
+      touch-action:pan-x;scrollbar-width:none;-ms-overflow-style:none;}
+    .an-period::-webkit-scrollbar{display:none;}
+    /* .an-select (Creator-Filter) und, im Umsatz-Bereich, .cur-wrap
+       (Waehrung) bekommen hier je ihre eigene volle Zeile statt beliebig
+       irgendwo in der umbrechenden .an-filters-Reihe zu landen. Grund: ihr
+       Menue haengt sich per position:absolute mit einer FESTEN Kante
+       (right:0 am Desktop) auf — je nachdem, wo der Button in der
+       umgebrochenen Reihe landet, ragt das Menue dann links ODER rechts aus
+       dem Bildschirm. Mit voller Breite startet der Button IMMER am linken
+       Rand, wo left:0 fuers Menue zuverlaessig passt. */
+    .an-select{flex:0 0 100%;}
+    .an-select-menu{left:0;right:auto;}
+    .an-filters .cur-wrap{flex:0 0 100%;}
+    .an-filters .cur-menu{left:0;right:auto;}
   }
 
   /* Formulare */
