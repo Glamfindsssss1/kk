@@ -1210,6 +1210,13 @@
   .a-filter-reset{flex:0 0 auto;height:46px;white-space:nowrap;}
   @media (max-width:560px){
     .a-filter-bar{flex-direction:column;align-items:stretch;}
+    /* .a-filter-field/.a-filter-search haben oben ein flex-basis in px, das
+       fuer die Breite in der normalen Zeilen-Anordnung gedacht ist. Sobald
+       .a-filter-bar hier auf Spalten umschaltet, wuerde genau dieser Wert
+       stattdessen als Hoehe gelten (Hauptachse ist jetzt vertikal) — die
+       Felder waeren 160-220px hoch statt normal hoch. flex:none nimmt die
+       feste Basis wieder raus, width:100% sorgt weiter fuer volle Breite. */
+    .a-filter-field,.a-filter-search{flex:none;width:100%;min-width:0;}
     .a-filter-reset{width:100%;}
   }
 
@@ -1298,9 +1305,15 @@
     .a-actions{flex-direction:column;align-items:stretch;}
     .a-actions .a-btn{margin-left:0;width:100%;}
 
-    /* Kopfzeile in eine Zeile bekommen */
-    .a-brand{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-    .a-bar-actions .a-btn{height:40px;padding:0 12px;font-size:13px;white-space:nowrap;}
+    /* Kopfzeile in eine Zeile bekommen: der Titel darf schrumpfen/kuerzen,
+       die Aktions-Buttons (bis zu 5, je nach Ansicht) passen selbst
+       verkleinert oft nicht alle nebeneinander — sie scrollen deshalb
+       horizontal, statt rechts einfach abgeschnitten/unerreichbar zu sein. */
+    .a-brand{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto;}
+    .a-bar-actions{overflow-x:auto;-webkit-overflow-scrolling:touch;touch-action:pan-x;
+      scrollbar-width:none;-ms-overflow-style:none;margin-right:-16px;padding-right:16px;}
+    .a-bar-actions::-webkit-scrollbar{display:none;}
+    .a-bar-actions .a-btn{height:40px;padding:0 12px;font-size:13px;white-space:nowrap;flex:0 0 auto;}
 
     /* Produktzeile: Name bekommt die volle Breite, Knöpfe rutschen darunter */
     .a-row{flex-wrap:wrap;row-gap:10px;}
