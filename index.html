@@ -1684,8 +1684,8 @@
 
 <script>
 // Hero-Bereich bleibt unsichtbar, bis applyCreator() mit den echten Supabase-Daten
-// lief (siehe boot() ganz unten) — verhindert den kurzen Blitz des Platzhalter-
-// Namens "Sashimi" aus dem CREATOR-Objekt weiter unten in diesem Script.
+// lief (siehe boot() ganz unten) — verhindert den kurzen Blitz der leeren
+// Platzhalterwerte aus dem CREATOR-Objekt weiter unten in diesem Script.
 document.body.classList.add("creator-loading");
 
 // ---------- Sprachen ----------
@@ -1938,12 +1938,17 @@ function slugFromPath(){
 let SLUG = slugFromPath() || new URLSearchParams(location.search).get("creator");
 let CREATOR_ROW = null;
 
+// Bewusst OHNE Marken-Namen als Platzhalter: bis applyCreator() die echten
+// Supabase-Daten eingesetzt hat, bleibt der Hero-Bereich per .creator-loading
+// unsichtbar (siehe oben) -- taucht dieses Objekt trotzdem mal sichtbar auf
+// (z.B. weil das Laden fehlschlug), soll dort keine fremde Platzhalter-Marke
+// wie zuvor "Sashimi Closet" zu sehen sein, sondern einfach nichts.
 const CREATOR = {
-  name: "Sashimi",
-  handle: "@sashimi",
-  nameSub: "Closet",
+  name: "",
+  handle: "",
+  nameSub: "",
   avatarUrl: "",            // z.B. "https://.../avatar.jpg" — bei leer wird Farbverlauf + Initiale gezeigt
-  avatarInitial: "S",
+  avatarInitial: "",
   bgImageUrl: "",           // z.B. gleiche URL wie avatarUrl, wird geblurt als Hintergrund genutzt
   loginUrl: "#",
   promoLine1: "REGISTER HERE FOR 50% OFF🎉",
