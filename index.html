@@ -624,7 +624,10 @@
     background:#f1f2f5;border:1px solid var(--border);border-radius:10px;padding:6px 10px;}
   .pf-input-wrap:focus-within{border-color:var(--accent);background:#fff;}
   .pf-currency{font-size:13px;font-weight:700;color:var(--muted);flex:0 0 auto;}
-  .pf-num{width:100%;background:none;border:none;outline:none;font:600 13px/1 inherit;
+  /* font-size bewusst 16px: alles darunter loest auf iOS Safari beim Fokussieren
+     einen automatischen Hinein-Zoom aus (der Nutzer "wird reingezoomt"), weil
+     Safari davon ausgeht, kleinere Eingabeschrift muesse vergroessert werden. */
+  .pf-num{width:100%;background:none;border:none;outline:none;font:600 16px/1 inherit;
     color:var(--text);-moz-appearance:textfield;}
   .pf-num::-webkit-outer-spin-button,.pf-num::-webkit-inner-spin-button{-webkit-appearance:none;}
   .pf-dash{color:var(--muted);font-weight:600;flex:0 0 auto;}
