@@ -2109,7 +2109,7 @@ function renderCatRow(){
     btn.type = "button";
     btn.className = "cat-item" + (activeCat===c.key ? " active":"");
     const inner = c.img
-      ? `<img src="${c.img}" alt="${c.label}" loading="lazy">`
+      ? `<img src="${c.img}" alt="${c.label}">`
       : (c.icon || (c.key === "all" ? ICON_GRID : ""));
     const label = T().cats[c.key] || c.label;
     btn.innerHTML = `<span class="cat-circle">${inner}</span><span class="cat-label">${label}</span>`;
@@ -2429,16 +2429,25 @@ function renderSectionHead(){
   productCount.hidden = !inSubView;
 }
 
-function buildProductCard(p){
+// So viele Produktbilder pro Raster laden sofort (kein loading="lazy") --
+// deckt in etwa ab, was auf den meisten Bildschirmgroessen ohne Scrollen
+// sichtbar ist. Erst danach kommende Bilder werden verzoegert geladen: sonst
+// wuerde Lazy-Loading genau die Bilder verlangsamen, die als erstes zu sehen
+// sind (auf dem Handy besonders spuerbar), statt nur die, die man erst durch
+// Scrollen erreicht.
+const EAGER_IMAGE_COUNT = 8;
+
+function buildProductCard(p, indexInGrid = 0){
   const isWished = pageWishlist.includes(p.id);
   const t = T();
   const label = t.buy;
   const card = document.createElement("div");
   card.className = "p-card";
   card.dataset.id = p.id;
+  const imgLoading = indexInGrid < EAGER_IMAGE_COUNT ? "eager" : "lazy";
   card.innerHTML = `
     <div class="p-thumb">
-      ${p.img ? `<img class="p-img" src="${p.img}" alt="" loading="lazy">` : ""}
+      ${p.img ? `<img class="p-img" src="${p.img}" alt="" loading="${imgLoading}">` : ""}
       ${p.discountLabel ? `<span class="p-discount-badge" style="background:${p.discountColor||'#e11d48'}">${p.discountLabel}</span>` : ""}
       <button class="p-heart ${isWished?'active':''}" type="button" aria-pressed="${isWished}"
               aria-label="${isWished ? t.wishRemove : t.wishAdd}: ${p.name}">${isWished?'\u2665':'\u2661'}</button>
@@ -2550,7 +2559,7 @@ function renderCollections(){
     });
 
     const grid = section.querySelector(".product-grid");
-    preview.forEach(p => grid.appendChild(buildProductCard(p)));
+    preview.forEach((p, i) => grid.appendChild(buildProductCard(p, i)));
 
     collectionsRoot.appendChild(section);
   });
@@ -2606,7 +2615,7 @@ function renderProducts(){
     return;
   }
 
-  items.forEach(p => productGrid.appendChild(buildProductCard(p)));
+  items.forEach((p, i) => productGrid.appendChild(buildProductCard(p, i)));
 }
 
 function update(){
