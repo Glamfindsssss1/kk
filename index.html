@@ -945,6 +945,14 @@
   .a-cred-status-none .a-cred-dot{background:#94a3b8;}
   .a-cred-meta{margin-left:auto;font-weight:500;color:inherit;opacity:.75;font-size:12px;}
 
+  /* Liste aller aktiven Weidian-Verbindungen (beliebig viele Shops) */
+  .a-cred-list{display:flex;flex-direction:column;max-height:360px;overflow-y:auto;
+    border:1px solid var(--border);border-radius:10px;}
+  .a-cred-row{display:flex;align-items:center;gap:12px;padding:11px 14px;border-top:1px solid #eff1f4;}
+  .a-cred-row:first-child{border-top:none;}
+  .a-cred-row .a-cred-dot{background:#10b981;}
+  .a-cred-row .a-cred-delete{flex:0 0 auto;color:#dc2626;}
+
   /* Shop-Liste im Weidian-API-Verbindungsformular */
   .a-cred-shops{margin-top:22px;padding-top:18px;border-top:1px solid #eff1f4;}
   .a-cred-shops-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;}
@@ -5123,45 +5131,47 @@ function formatRevenueAmount(cnyValue, opts){
 // Shop"-Modell aus der Umsatz-Ansicht.
 let shopAssignSlots = [null, null, null]; // Creator-IDs in den 3 Slots
 
-// Prueft nur, OB bereits Weidian-Zugangsdaten hinterlegt sind (fuer die
-// Anzeige "Verbunden"/"Nicht verbunden") — liest bewusst NIE app_secret oder
-// app_key selbst aus, nur ob eine aktive Zeile existiert. Der eigentliche
-// Schluessel geht spaeter direkt an eine Edge Function und wird nie im
-// Browser-State gehalten.
-// Liefert die Shops, denen bereits ECHTE synchronisierte Bestellungen
-// zugeordnet sind (siehe weidian_shop_id in weidian_orders) — das sind die
-// tatsaechlichen Shops, denen ein Creator zugewiesen werden kann. Gibt null
-// zurueck, solange noch keine Synchronisierung gelaufen ist; die Aufrufer
-// fallen dann auf ihre bisherige Demo-Shop-Liste zurueck (siehe
-// renderShopAssign und den Weidian-Shop-Dropdown im Creator-Formular).
-async function loadRealWeidianShops(labelForSingleShop){
-  const { data } = await sb.from("weidian_orders").select("weidian_shop_id").limit(1000);
-  const ids = [...new Set((data || []).map(r => r.weidian_shop_id).filter(Boolean))];
-  if(!ids.length) return null;
-  return ids.map(id => ({ id, name: (labelForSingleShop && ids.length === 1) ? labelForSingleShop : `Shop ${id}` }));
+// Liefert ALLE aktiven Weidian-Verbindungen (beliebig viele Shops, nicht nur
+// eine) — app_key wird mitgelesen, um synchronisierte Bestellungen (siehe
+// weidian_orders.weidian_shop_id, das aktuell mangels echter Shop-ID aus der
+// API auf den app_key der jeweiligen Verbindung zurueckfaellt) ihrem
+// richtigen Shop-Namen zuordnen zu koennen. app_secret bleibt weiterhin
+// tabu — der verlaesst die Datenbank nie in Richtung Browser.
+async function loadWeidianCredentials(){
+  const { data, error } = await sb.from("weidian_credentials")
+    .select("id, app_key, label, created_at")
+    .eq("is_active", true)
+    .order("created_at", { ascending: false });
+  if(error){ console.error("Konnte Weidian-Verbindungen nicht laden:", error); return []; }
+  return data || [];
 }
 
-async function loadWeidianCredentialStatus(){
-  // access_token wird nur als Ja/Nein-Signal gebraucht (siehe unten in
-  // renderShopAssign) — der Wert selbst wird nie im UI angezeigt.
-  const { data, error } = await sb.from("weidian_credentials")
-    .select("id, label, created_at, updated_at, access_token")
-    .eq("is_active", true)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if(error){ console.error("Konnte Weidian-Zugangsdaten-Status nicht laden:", error); return null; }
-  return data;
+// Liefert die Shops, denen bereits ECHTE synchronisierte Bestellungen
+// zugeordnet sind (siehe weidian_shop_id in weidian_orders) — das sind die
+// tatsaechlichen Shops, denen ein Creator zugewiesen werden kann. Jede
+// Shop-ID wird, falls moeglich, auf die Bezeichnung der zugehoerigen
+// Verbindung gemappt (weidian_shop_id === credentials.app_key, siehe oben);
+// ohne Treffer (z.B. Verbindung zwischenzeitlich geloescht) bleibt die rohe
+// ID als Anzeigename. Gibt null zurueck, solange noch keine Synchronisierung
+// gelaufen ist; die Aufrufer fallen dann auf ihre bisherige Demo-Shop-Liste
+// zurueck (siehe renderShopAssign und der Weidian-Shop-Dropdown im
+// Creator-Formular).
+async function loadRealWeidianShops(credentials){
+  const { data } = await sb.from("weidian_orders").select("weidian_shop_id").limit(5000);
+  const ids = [...new Set((data || []).map(r => r.weidian_shop_id).filter(Boolean))];
+  if(!ids.length) return null;
+  const labelByAppKey = new Map((credentials || []).map(c => [c.app_key, c.label || `Shop ${c.app_key}`]));
+  return ids.map(id => ({ id, name: labelByAppKey.get(id) || `Shop ${id}` }));
 }
 
 async function renderShopAssign(){
-  const credStatus = await loadWeidianCredentialStatus();
+  const credentials = await loadWeidianCredentials();
   // Sobald mindestens eine Synchronisierung gelaufen ist, ersetzen die
   // tatsaechlichen Shops (aus den echten Bestellungen) die Vorschau-Liste \u2014
   // sonst blieb "Shop-Zuweisung" nach der ersten echten Synchronisierung
   // wirkungslos, weil Creator weiterhin erfundenen Demo-Shop-IDs zugewiesen
   // wurden, die in keiner echten Bestellung vorkommen.
-  const realShops = await loadRealWeidianShops(credStatus?.label);
+  const realShops = await loadRealWeidianShops(credentials);
   const DEMO_WEIDIAN_SHOPS = realShops || [
     { id: "wd_10231", name: "Coco Finds \u5c0f\u5e97" },
     { id: "wd_10455", name: "Old Money Vault" },
@@ -5194,31 +5204,37 @@ async function renderShopAssign(){
     <div class="a-wrap">
       <div class="a-card">
         <div class="a-head">
-          <h2 class="a-h2">Weidian-API-Verbindung</h2>
-          <p class="a-sub">Speichert deinen Weidian Open Platform App Key/Secret \u2014 wird nie im Browser sichtbar, nur serverseitig f\u00fcr den automatischen Bestellabruf genutzt.</p>
+          <h2 class="a-h2">Weidian-API-Verbindungen</h2>
+          <p class="a-sub">Speichert beliebig viele Weidian Open Platform App Key/Secret-Paare \u2014 je eins pro Shop. Secrets sind nie im Browser sichtbar, nur serverseitig f\u00fcr den automatischen Bestellabruf im Einsatz.</p>
         </div>
-        <div class="a-cred-status ${credStatus ? "a-cred-status-ok" : "a-cred-status-none"}">
-          ${credStatus
-            ? `<span class="a-cred-dot"></span> Verbunden${credStatus.label ? ` \u2014 ${aesc(credStatus.label)}` : ""} <span class="a-cred-meta">seit ${new Date(credStatus.created_at).toLocaleDateString("de-DE")}</span>`
-            : `<span class="a-cred-dot"></span> Noch keine Zugangsdaten hinterlegt`}
-        </div>
-        ${credStatus ? `
+        ${credentials.length ? `
+          <div class="a-cred-list" id="credList">
+            ${credentials.map(c => `
+              <div class="a-cred-row" data-cred="${aesc(c.id)}">
+                <span class="a-cred-dot"></span>
+                <div class="an-top-info">
+                  <div class="an-top-name">${aesc(c.label || "Ohne Bezeichnung")}</div>
+                  <div class="an-top-meta">seit ${new Date(c.created_at).toLocaleDateString("de-DE")}</div>
+                </div>
+                <button type="button" class="a-btn a-btn-ghost a-cred-delete" data-cred="${aesc(c.id)}" title="Verbindung endg\u00fcltig l\u00f6schen">L\u00f6schen</button>
+              </div>`).join("")}
+          </div>
           <button type="button" class="a-btn a-btn-primary" id="credSyncBtn" style="margin-top:12px;width:100%">
             ${REFRESH_SVG}
-            <span>Jetzt mit Weidian synchronisieren</span>
+            <span>Jetzt mit Weidian synchronisieren${credentials.length > 1 ? ` (${credentials.length} Shops)` : ""}</span>
           </button>
           <p class="a-hint" id="credSyncStatus" style="margin-top:8px"></p>
-        ` : ""}
+        ` : `<p class="a-hint">Noch keine Zugangsdaten hinterlegt.</p>`}
         <form id="credForm" class="a-grid" style="margin-top:16px">
           <div><label class="a-label" for="cred-key">App Key</label><input id="cred-key" class="a-field" placeholder="z.B. wx1234567890abcdef" required></div>
           <div><label class="a-label" for="cred-secret">App Secret</label><input id="cred-secret" class="a-field" type="password" placeholder="\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" required></div>
-          <div><label class="a-label" for="cred-label">Bezeichnung (optional)</label><input id="cred-label" class="a-field" placeholder="z.B. Hauptkonto"></div>
+          <div><label class="a-label" for="cred-label">Bezeichnung (optional)</label><input id="cred-label" class="a-field" placeholder="z.B. Shop 12"></div>
           <div class="a-actions">
-            <button type="submit" class="a-btn a-btn-primary">Speichern</button>
+            <button type="submit" class="a-btn a-btn-primary">${credentials.length ? "Weiteren Shop hinzuf\u00fcgen" : "Speichern"}</button>
           </div>
         </form>
 
-        ${credStatus ? `
+        ${credentials.length ? `
           <div class="a-cred-shops">
             <div class="a-cred-shops-head">
               <p class="a-block-title" style="margin:0">Shops in diesem Konto ${realShops ? "" : `<span class="an-preview-badge" style="vertical-align:middle;margin-left:4px">Vorschau</span>`}</p>
@@ -5350,27 +5366,47 @@ async function renderShopAssign(){
     if(!appKey || !appSecret){ atoast("App Key und App Secret werden ben\u00f6tigt.", "err"); return; }
 
     const submitBtn = e.target.querySelector("button[type=submit]");
+    const prevLabel = submitBtn.textContent;
     submitBtn.disabled = true;
     submitBtn.textContent = "Speichert \u2026";
 
-    const { error: deactivateErr } = await sb.from("weidian_credentials")
-      .update({ is_active: false }).eq("is_active", true);
-    if(deactivateErr){
-      atoast("Fehler beim Speichern: " + deactivateErr.message, "err");
-      submitBtn.disabled = false; submitBtn.textContent = "Speichern";
-      return;
-    }
-
+    // Fuegt eine weitere Verbindung hinzu, statt bestehende zu ersetzen \u2014
+    // beliebig viele Shops koennen gleichzeitig aktiv sein (siehe
+    // loadWeidianCredentials). Zum Entfernen eines Shops dient der
+    // "L\u00f6schen"-Button in der Liste oben, nicht das erneute Speichern.
     const { error } = await sb.from("weidian_credentials")
       .insert({ app_key: appKey, app_secret: appSecret, label, is_active: true });
     if(error){
       atoast("Fehler beim Speichern: " + error.message, "err");
-      submitBtn.disabled = false; submitBtn.textContent = "Speichern";
+      submitBtn.disabled = false; submitBtn.textContent = prevLabel;
       return;
     }
-    atoast("Weidian-Zugangsdaten gespeichert.");
+    atoast("Weidian-Verbindung gespeichert.");
     renderShopAssign();
   };
+
+  // Loescht eine Weidian-Verbindung endgueltig \u2014 der Shop wird danach nicht
+  // mehr synchronisiert. Bereits abgerufene Bestellungen (weidian_orders)
+  // bleiben bewusst erhalten, da sie historische Umsatzdaten sind; nur die
+  // Zugangsdaten selbst verschwinden.
+  document.querySelectorAll(".a-cred-delete").forEach(btn=>{
+    btn.onclick = async ()=>{
+      const credId = btn.dataset.cred;
+      const row = btn.closest(".a-cred-row");
+      const name = row?.querySelector(".an-top-name")?.textContent || "diese Verbindung";
+      if(!confirm(`\u201e${name}" endg\u00fcltig l\u00f6schen? Der Shop wird danach nicht mehr synchronisiert. Bereits abgerufene Bestellungen bleiben erhalten.`)) return;
+      btn.disabled = true;
+      btn.textContent = "L\u00f6scht \u2026";
+      const { error } = await sb.from("weidian_credentials").delete().eq("id", credId);
+      if(error){
+        atoast("Konnte nicht gel\u00f6scht werden: " + error.message, "err");
+        btn.disabled = false; btn.textContent = "L\u00f6schen";
+        return;
+      }
+      atoast(`\u201e${name}" gel\u00f6scht.`);
+      renderShopAssign();
+    };
+  });
 
   // Shop-Liste im Zugangsdaten-Formular aktualisieren — ruft aktuell nur die
   // Demo-Shops erneut ab (kuenstliche Verzoegerung fuer den Ladezustand),
@@ -5425,7 +5461,18 @@ async function renderShopAssign(){
       atoast("Weidian hat den Abruf abgelehnt \u2014 siehe Hinweis unter dem Button.", "err");
       return;
     }
-    statusEl.textContent = `${data?.ordersFetched ?? 0} Bestellungen abgerufen.`;
+    // Bei mehreren Shops liefert die Funktion pro Verbindung ein eigenes
+    // Ergebnis (results) \u2014 schlaegt einzelne Shops fehl, laeuft der Sync fuer
+    // die uebrigen trotzdem durch; das zeigen wir hier zusammengefasst an,
+    // statt bei einem einzelnen Fehler alles als gescheitert zu melden.
+    const failed = (data?.results || []).filter(r => r.error);
+    if(failed.length){
+      statusEl.textContent = `${data?.ordersFetched ?? 0} Bestellungen abgerufen \u2014 ${failed.length} Shop(s) fehlgeschlagen: ${failed.map(r => `${r.label || r.appKeySuffix}: ${r.error}`).join("; ")}`;
+      statusEl.style.color = "#a3660a";
+      atoast(`Sync teilweise fehlgeschlagen \u2014 ${failed.length} von ${data?.results?.length ?? "?"} Shops.`, "err");
+      return;
+    }
+    statusEl.textContent = `${data?.ordersFetched ?? 0} Bestellungen abgerufen${data?.results?.length > 1 ? ` (${data.results.length} Shops)` : ""}.`;
     statusEl.style.color = "#059669";
     atoast(`Synchronisierung erfolgreich \u2014 ${data?.ordersFetched ?? 0} Bestellungen.`);
   });
