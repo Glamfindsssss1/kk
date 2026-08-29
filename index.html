@@ -2600,6 +2600,19 @@ function renderCollections(){
   }
 }
 
+// Anzahl Karten, die pro Portion gerendert werden. Ohne dieses Limit wuerde
+// z.B. "Alle ansehen" bei einem Creator mit mehreren tausend Produkten auf
+// einen Schlag ebenso viele DOM-Karten aufbauen -- das laesst den Browser kurz
+// einfrieren, besonders auf dem Handy. Stattdessen wird nur eine Portion
+// gerendert und die naechste automatisch beim Herunterscrollen nachgelegt.
+const RENDER_CHUNK_SIZE = 30;
+
+// Beobachtet ein unsichtbares Element am Ende der bisher geladenen Karten. Kommt
+// es in die Naehe des sichtbaren Bereichs, wird die naechste Portion angehaengt --
+// fuehlt sich fuer den Nutzer wie eine ganz normale, durchgehende Liste an, ganz
+// ohne "Mehr laden"-Klick. Wird bei jedem renderProducts()-Aufruf neu aufgesetzt.
+let productGridLoadObserver = null;
+
 function renderProducts(){
   const all = filtered();
   // Nur ohne aktive Kategorie/Style-Filterung wird auf previewCount begrenzt —
@@ -2609,6 +2622,11 @@ function renderProducts(){
   const noFilterActive = activeCat === "all" && activeStyle === "ALL";
   const items = (viewAll || wishOnly || !noFilterActive) ? all : all.slice(0, CREATOR.previewCount);
   productGrid.innerHTML = "";
+
+  if(productGridLoadObserver){
+    productGridLoadObserver.disconnect();
+    productGridLoadObserver = null;
+  }
 
   if(!items.length){
     const t = T();
@@ -2642,7 +2660,55 @@ function renderProducts(){
     return;
   }
 
-  items.forEach((p, i) => productGrid.appendChild(buildProductCard(p, i)));
+  // Ohne IntersectionObserver-Unterstuetzung (sehr alte Browser) gibt es keinen
+  // verlaesslichen Scroll-Trigger -- dann lieber alles sofort rendern, statt dem
+  // Nutzer Karten vorzuenthalten, die nie nachgeladen werden.
+  if(!("IntersectionObserver" in window)){
+    items.forEach((p, i) => productGrid.appendChild(buildProductCard(p, i)));
+    return;
+  }
+
+  let renderedCount = 0;
+  const sentinel = document.createElement("div");
+  sentinel.style.gridColumn = "1 / -1";
+  sentinel.style.height = "1px";
+
+  function renderNextChunk(){
+    const end = Math.min(renderedCount + RENDER_CHUNK_SIZE, items.length);
+    for(let i = renderedCount; i < end; i++){
+      productGrid.appendChild(buildProductCard(items[i], i));
+    }
+    renderedCount = end;
+
+    if(renderedCount >= items.length){
+      productGridLoadObserver.disconnect();
+      productGridLoadObserver = null;
+      sentinel.remove();
+      return;
+    }
+
+    // Neu ans Ende haengen und neu beobachten, damit der Observer den
+    // Intersection-Status an der neuen Position frisch prueft -- sonst wuerde
+    // er kein weiteres Ereignis feuern, wenn das Element schon vorher (an alter
+    // Position) als sichtbar galt.
+    productGridLoadObserver.unobserve(sentinel);
+    productGrid.appendChild(sentinel);
+    productGridLoadObserver.observe(sentinel);
+  }
+
+  productGridLoadObserver = new IntersectionObserver((entries)=>{
+    if(entries.some(e => e.isIntersecting)) renderNextChunk();
+  }, { rootMargin: "600px 0px" });
+
+  renderNextChunk();
+
+  if(renderedCount < items.length){
+    productGrid.appendChild(sentinel);
+    productGridLoadObserver.observe(sentinel);
+  } else {
+    productGridLoadObserver.disconnect();
+    productGridLoadObserver = null;
+  }
 }
 
 function update(){
