@@ -5182,6 +5182,7 @@ async function renderShopAssign(){
   // ein fertig zugeordneter Creator faelschlich wieder im Pool auf.
   const availableCreators = state.creators.filter(c => !slotIds.has(c.id) && !c.weidian_shop_id);
   const isFull = shopAssignSlots.every(Boolean);
+  const hasAnyInSlots = shopAssignSlots.some(Boolean);
   const assignedGroups = groupCreatorsByShop(state.creators).filter(g => g.shopId);
 
   app.innerHTML = `
@@ -5254,7 +5255,7 @@ async function renderShopAssign(){
       <div class="a-card">
         <div class="a-head">
           <h2 class="a-h2">Shop-Zuweisung ${realShops ? "" : `<span class="an-preview-badge" style="vertical-align:middle;margin-left:6px">Vorschau</span>`}</h2>
-          <p class="a-sub">Ziehe drei Creator in die Kreise oder tippe sie an, um sie einer Dreiergruppe zuzuordnen. Ist die Gruppe voll, kannst du ihr gemeinsam einen Weidian-Shop zuweisen.</p>
+          <p class="a-sub">Ziehe bis zu drei Creator in die Kreise oder tippe sie an, um sie einer Gruppe zuzuordnen. Sobald mindestens einer drin steckt, kannst du ihnen gemeinsam einen Weidian-Shop zuweisen — die Gruppe muss dafür nicht voll sein.</p>
         </div>
 
         <div class="sa-slots ${isFull ? "sa-slots-full" : ""}" id="saSlots">
@@ -5268,7 +5269,7 @@ async function renderShopAssign(){
           }).join("")}
         </div>
 
-        ${isFull ? `
+        ${hasAnyInSlots ? `
           <div class="sa-shop-picker">
             <label class="a-label" for="saShopSelect">Shop f\u00fcr diese Gruppe</label>
             <div class="a-uprow">
@@ -5544,7 +5545,7 @@ async function renderShopAssign(){
         const c = state.creators.find(x => x.id === id);
         if(c) c.weidian_shop_id = shopId;
       });
-      atoast(`3 Creator \u2192 ${shopName} zugewiesen und gespeichert.`);
+      atoast(`${ids.length} Creator \u2192 ${shopName} zugewiesen und gespeichert.`);
       shopAssignSlots = [null, null, null];
       renderShopAssign();
     };
