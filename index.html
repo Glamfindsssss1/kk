@@ -72,11 +72,8 @@
   .page > *{min-width:0;max-width:100%;}
   /* Jede innere horizontale Scrollleiste (Style-Tabs, Kategorien, Preis-
      Unterfilter, Produktkarussells) darf nur sich selbst scrollen, nie die
-     Seite darunter mitziehen. touch-action:pan-x macht ausserdem den ersten
-     Fingerkontakt sofort eindeutig horizontal, statt dass der Browser kurz
-     abwaegt, ob vertikal gescrollt werden soll -- das macht den Start der
-     Wischgeste spuerbar direkter/schneller. */
-  .tab-bar,.cat-row,.subcat-row,.product-grid-scroll{overscroll-behavior-x:contain;touch-action:pan-x;}
+     Seite darunter mitziehen. */
+  .tab-bar,.cat-row,.subcat-row,.product-grid-scroll{overscroll-behavior-x:contain;}
 
   /* Feste Kopfzeile: im Ruhezustand transparent ueber dem Hero-Bild, wird solide
      sobald man scrollt (Klasse .is-solid, siehe JS) — sonst ueberlappt sie beim
@@ -668,14 +665,12 @@
      Bewusst zurueckhaltend gehalten (helle Flaeche, keine Farbe) — das soll ein
      leiser Zusatzfilter sein, keine zweite Hauptnavigation. */
   .subcat-row{display:flex;align-items:center;gap:7px;overflow-x:auto;margin:-6px 0 18px;
-    scrollbar-width:none;-ms-overflow-style:none;
-    -webkit-overflow-scrolling:touch;scroll-snap-type:x proximity;}
+    scrollbar-width:none;-ms-overflow-style:none;}
   .subcat-row::-webkit-scrollbar{display:none;}
   .subcat-row:empty{display:none;margin:0;}
   .subcat-pill{flex:0 0 auto;padding:7px 14px;border-radius:999px;border:none;
     background:#f1f2f5;color:#54596a;font-size:13px;font-weight:600;white-space:nowrap;
-    cursor:pointer;transition:background-color .14s ease,color .14s ease;
-    scroll-snap-align:start;}
+    cursor:pointer;transition:background-color .14s ease,color .14s ease;}
   .subcat-pill:hover{background:#e6e8ec;}
   .subcat-pill.active{background:#1a1c22;color:#fff;}
   .subcat-pill:focus-visible{outline:3px solid rgba(59,102,245,.4);outline-offset:2px;}
@@ -708,10 +703,8 @@
     grid-template-columns:repeat(3,calc((100% - 2*7px) / 3));
     grid-auto-columns:calc((100% - 2*7px) / 3);
     overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;-ms-overflow-style:none;
-    scroll-snap-type:x proximity;
     padding-bottom:2px;}
   .product-grid-scroll::-webkit-scrollbar{display:none;}
-  .product-grid-scroll > .p-card{scroll-snap-align:start;}
   .p-count{font-size:13px;font-weight:600;color:var(--muted);margin:-4px 0 14px;}
   .empty-state{grid-column:1 / -1;font-size:14px;color:var(--muted);margin:6px 0 0;line-height:1.5;}
   .empty-reset{margin-top:12px;display:inline-flex;align-items:center;height:38px;padding:0 16px;
