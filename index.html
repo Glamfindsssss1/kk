@@ -1055,6 +1055,9 @@
   .rv-status-paid{color:#1c7a52;background:#e3f5ec;}
   .rv-status-shipped{color:#1e40af;background:#e9eefd;}
   .rv-status-pending{color:#a3660a;background:#fdf1dc;}
+  .rv-status-cancelled{color:#b91c1c;background:#fee2e2;}
+  .rv-order-row-cancelled{opacity:.55;}
+  .rv-order-row-cancelled .an-top-name{text-decoration:line-through;}
 
   @media (max-width:640px){
     .a-head-row{flex-direction:column;}
@@ -5851,7 +5854,7 @@ async function renderRevenue(){
         ${filteredOrders.length ? `
           <div class="rv-order-list">
             ${filteredOrders.map(o => `
-              <div class="rv-order-row">
+              <div class="rv-order-row${o.status === "cancelled" ? " rv-order-row-cancelled" : ""}">
                 ${o.image_url
                   ? `<img class="rv-order-thumb-img" src="${aesc(o.image_url)}" alt="">`
                   : `<span class="rv-order-thumb">${ORDER_BAG_SVG}</span>`}
