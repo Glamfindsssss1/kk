@@ -951,6 +951,8 @@
   .a-cred-row{display:flex;align-items:center;gap:12px;padding:11px 14px;border-top:1px solid #eff1f4;}
   .a-cred-row:first-child{border-top:none;}
   .a-cred-row .a-cred-dot{background:#10b981;}
+  .a-cred-row .a-cred-sync-one{flex:0 0 auto;padding:8px;}
+  .a-cred-row .a-cred-sync-one svg{margin:0;}
   .a-cred-row .a-cred-delete{flex:0 0 auto;color:#dc2626;}
 
   /* Shop-Liste im Weidian-API-Verbindungsformular */
@@ -5216,6 +5218,9 @@ async function renderShopAssign(){
                   <div class="an-top-name">${aesc(c.label || "Ohne Bezeichnung")}</div>
                   <div class="an-top-meta">seit ${new Date(c.created_at).toLocaleDateString("de-DE")}</div>
                 </div>
+                <button type="button" class="a-btn a-btn-ghost a-cred-sync-one" data-cred="${aesc(c.id)}" title="Nur diesen Shop synchronisieren">
+                  ${REFRESH_SVG}
+                </button>
                 <button type="button" class="a-btn a-btn-ghost a-cred-delete" data-cred="${aesc(c.id)}" title="Verbindung endg\u00fcltig l\u00f6schen">L\u00f6schen</button>
               </div>`).join("")}
           </div>
@@ -5405,6 +5410,41 @@ async function renderShopAssign(){
       }
       atoast(`\u201e${name}" gel\u00f6scht.`);
       renderShopAssign();
+    };
+  });
+
+  // Synchronisiert genau EINEN Shop statt aller \u2014 ruft dieselbe Funktion wie
+  // der grosse Sync-Button auf, aber mit credentialId im Body, damit die
+  // Funktion nur diese eine Verbindung abarbeitet (siehe weidian-sync).
+  document.querySelectorAll(".a-cred-sync-one").forEach(btn=>{
+    btn.onclick = async ()=>{
+      const credId = btn.dataset.cred;
+      const row = btn.closest(".a-cred-row");
+      const name = row?.querySelector(".an-top-name")?.textContent || "dieser Shop";
+      const prevHtml = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = `<span>\u2026</span>`;
+
+      const { data, error } = await sb.functions.invoke("weidian-sync", { body: { credentialId: credId } });
+
+      btn.disabled = false;
+      btn.innerHTML = prevHtml;
+
+      if(error){
+        let detail = error.message;
+        try {
+          const body = await error.context?.json?.();
+          if(body?.error) detail = body.error;
+        } catch { /* Antwort war kein JSON \u2014 bei der generischen Meldung bleiben */ }
+        atoast(`Sync f\u00fcr \u201e${name}" fehlgeschlagen: ${detail}`, "err");
+        return;
+      }
+      const oneResult = data?.results?.[0];
+      if(oneResult?.error){
+        atoast(`Weidian meldet f\u00fcr \u201e${name}": ${oneResult.error}`, "err");
+        return;
+      }
+      atoast(`\u201e${name}" synchronisiert \u2014 ${data?.ordersFetched ?? 0} Bestellungen.`);
     };
   });
 
