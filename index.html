@@ -5623,12 +5623,19 @@ async function renderRevenue(){
     if(revenueCreatorId !== "all" && o.creator?.id !== revenueCreatorId) return false;
     return true;
   });
+  // Stornierte/erstattete Bestellungen bleiben in der Liste unten sichtbar
+  // (mit "Storniert"-Badge), zaehlen aber nicht in Umsatz/Bestellzahl/Chart —
+  // sonst liegt die angezeigte Summe systematisch ueber dem, was Weidian
+  // selbst als tatsaechlichen Umsatz ausweist (bestaetigt anhand eines
+  // echten Abgleichs: 145 stornierte Bestellungen machten hier ca. 30.000 ¥
+  // Differenz aus).
+  const revenueOrders = filteredOrders.filter(o => o.status !== "cancelled");
 
   const demo = {
-    revenue: filteredOrders.reduce((s,o)=> s+o.price, 0),
-    orders: filteredOrders.length,
-    avgOrder: filteredOrders.length ? filteredOrders.reduce((s,o)=> s+o.price, 0) / filteredOrders.length : 0,
-    series: buildRevenueSeries(filteredOrders, revenuePeriod),
+    revenue: revenueOrders.reduce((s,o)=> s+o.price, 0),
+    orders: revenueOrders.length,
+    avgOrder: revenueOrders.length ? revenueOrders.reduce((s,o)=> s+o.price, 0) / revenueOrders.length : 0,
+    series: buildRevenueSeries(revenueOrders, revenuePeriod),
     // Creator, die sich denselben Weidian-Shop teilen (weidian_shop_id gleich),
     // werden zu EINER Zeile zusammengefasst (nicht mehrfach mit demselben Wert
     // aufgelistet) — nutzt dieselbe Gruppierungslogik wie das Creator-Auswahl-
@@ -5642,7 +5649,7 @@ async function renderRevenue(){
         const shopKey = group.shopId || `__unassigned_${group.creators[0].id}`;
         if(!revenueByShop.has(shopKey)){
           if(hasRealData){
-            const shopOrders = filteredOrders.filter(o => o.creator && group.creators.some(c => c.id === o.creator.id));
+            const shopOrders = revenueOrders.filter(o => o.creator && group.creators.some(c => c.id === o.creator.id));
             revenueByShop.set(shopKey, {
               revenue: shopOrders.reduce((s,o)=> s+o.price, 0),
               orders: shopOrders.length
