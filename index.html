@@ -5332,7 +5332,17 @@ async function renderShopAssign(){
     btn.innerHTML = prevHtml;
 
     if(error){
-      statusEl.textContent = "Fehler: " + error.message;
+      // sb.functions.invoke() liefert bei einem Nicht-2xx-Status nur eine
+      // generische error.message ("Edge Function returned a non-2xx status
+      // code") \u2014 die eigentliche, hilfreiche Fehlermeldung (z.B. was genau
+      // Weidian abgelehnt hat) steckt im JSON-Body der Antwort, den man erst
+      // ueber error.context (das rohe Response-Objekt) auslesen muss.
+      let detail = error.message;
+      try {
+        const body = await error.context?.json?.();
+        if(body?.error) detail = body.error;
+      } catch { /* Antwort war kein JSON \u2014 bei der generischen Meldung bleiben */ }
+      statusEl.textContent = "Fehler: " + detail;
       statusEl.style.color = "#dc2626";
       atoast("Synchronisierung fehlgeschlagen \u2014 siehe Hinweis unter dem Button.", "err");
       return;
