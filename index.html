@@ -1062,6 +1062,9 @@
     object-fit:cover;border:1px solid #f1f5f9;}
   .an-order-meta{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted);margin-top:2px;}
   .an-order-creator{display:inline-flex;align-items:center;gap:5px;font-weight:600;}
+  .an-order-creator .a-av-cluster{width:16px;height:16px;}
+  .an-order-creator .a-av-cluster-top, .an-order-creator .a-av-cluster-left, .an-order-creator .a-av-cluster-right{
+    width:8px;height:8px;}
   .rv-status{flex:0 0 auto;font-size:11px;font-weight:800;letter-spacing:.02em;
     border-radius:999px;padding:4px 10px;white-space:nowrap;}
   .rv-status-paid{color:#1c7a52;background:#e3f5ec;}
@@ -5693,16 +5696,23 @@ async function renderRevenue(){
     { title:"Leather Crossbody Bag",   image_url:"https://picsum.photos/seed/wdorder5/80" }
   ];
 
-  // Ordnet eine echte Bestellung (per weidian_shop_id) dem passenden Creator
-  // zu — mehrere Creator mit derselben Shop-ID (Team-Zuweisung) bekommen
-  // dieselbe Bestellung angezeigt, analog zum bisherigen Demo-Verhalten.
-  const creatorByShopId = new Map();
-  demoCreators.forEach(c => { if(c.weidian_shop_id) creatorByShopId.set(c.weidian_shop_id, c); });
+  // Ordnet eine echte Bestellung (per weidian_shop_id) der GANZEN Creator-
+  // Gruppe zu, die sich diesen Shop teilt — nicht nur einem einzelnen von
+  // ihnen. Vorher landete hier per Map nur der zuletzt verarbeitete Creator
+  // der Gruppe (jeder weitere Eintrag mit derselben Shop-ID ueberschrieb den
+  // vorherigen), wodurch Team-Shops in der Bestellliste faelschlich als
+  // Bestellung einer einzelnen Person angezeigt wurden.
+  const creatorsByShopId = new Map();
+  demoCreators.forEach(c => {
+    if(!c.weidian_shop_id) return;
+    if(!creatorsByShopId.has(c.weidian_shop_id)) creatorsByShopId.set(c.weidian_shop_id, []);
+    creatorsByShopId.get(c.weidian_shop_id).push(c);
+  });
 
   const demoOrders = hasRealData
     ? realOrdersRaw.map(o => ({
         id: o.weidian_order_id,
-        creator: creatorByShopId.get(o.weidian_shop_id) || null,
+        creators: creatorsByShopId.get(o.weidian_shop_id) || [],
         title: o.title,
         image_url: o.image_url,
         price: Number(o.price) || 0,
@@ -5715,7 +5725,7 @@ async function renderRevenue(){
         const product = DEMO_WEIDIAN_ORDER_PRODUCTS[i % DEMO_WEIDIAN_ORDER_PRODUCTS.length];
         return {
           id: `wd_ord_${100000 + i}`,
-          creator: c,
+          creators: c ? [c] : [],
           title: product.title,
           image_url: product.image_url,
           price: Math.round((39 + ((i * 37) % 260)) * 100) / 100,
@@ -5734,7 +5744,7 @@ async function renderRevenue(){
   const cutoff = periodDays === null ? -Infinity : resetDayStartMs(Date.now()) - (periodDays-1) * 24*3600*1000;
   const filteredOrders = demoOrders.filter(o => {
     if(new Date(o.date).getTime() < cutoff) return false;
-    if(revenueCreatorId !== "all" && o.creator?.id !== revenueCreatorId) return false;
+    if(revenueCreatorId !== "all" && !(o.creators || []).some(c => c.id === revenueCreatorId)) return false;
     return true;
   });
   // Nur tatsaechlich BEZAHLTE Bestellungen zaehlen als Umsatz (status "paid"
@@ -5766,7 +5776,7 @@ async function renderRevenue(){
         const shopKey = group.shopId || `__unassigned_${group.creators[0].id}`;
         if(!revenueByShop.has(shopKey)){
           if(hasRealData){
-            const shopOrders = revenueOrders.filter(o => o.creator && group.creators.some(c => c.id === o.creator.id));
+            const shopOrders = revenueOrders.filter(o => (o.creators || []).some(oc => group.creators.some(gc => gc.id === oc.id)));
             revenueByShop.set(shopKey, {
               revenue: shopOrders.reduce((s,o)=> s+o.price, 0),
               orders: shopOrders.length
@@ -5975,7 +5985,7 @@ async function renderRevenue(){
                 <div class="an-top-info">
                   <div class="an-top-name">${aesc(o.title)}</div>
                   <div class="an-order-meta">
-                    ${o.creator ? `<span class="an-order-creator">${avatarHtml(o.creator, "width:16px;height:16px;font-size:8px")}${aesc(o.creator.name)}</span>` : ""}
+                    ${o.creators?.length ? `<span class="an-order-creator">${groupAvatarHtml(o.creators, "width:16px;height:16px;font-size:8px")}${aesc(o.creators.map(c => c.name).join(", "))}</span>` : ""}
                     <span>${new Date(o.date).toLocaleDateString("de-DE", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" })}</span>
                   </div>
                 </div>
