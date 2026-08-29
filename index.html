@@ -4091,8 +4091,16 @@ function buildAdminProductRows(items, all, catLabel){
 // "..." abzuschneiden, schrumpft die Schrift in kleinen Schritten, bis er
 // passt (oder die Mindestgroesse erreicht ist), damit der volle Titel
 // lesbar bleibt statt gekuerzt zu werden.
-function fitRowTitles(){
-  document.querySelectorAll(".a-row-title").forEach(el=>{
+// Ohne `rows` werden alle .a-row-title im Dokument geprueft (z.B. nach einem
+// kompletten Dashboard-Rebuild). Mit `rows` (Array von Zeilen-Elementen) nur
+// die darin enthaltenen -- gebraucht beim portionsweisen Nachladen der
+// Produktliste, damit nicht bei jeder neuen Portion wieder ALLE bisher schon
+// passend gemachten Titel erneut geprueft werden.
+function fitRowTitles(rows){
+  const els = rows
+    ? rows.map(r => r.querySelector(".a-row-title")).filter(Boolean)
+    : Array.from(document.querySelectorAll(".a-row-title"));
+  els.forEach(el=>{
     el.style.fontSize = "";
     const min = 11;
     let size = parseFloat(getComputedStyle(el).fontSize);
@@ -4103,6 +4111,68 @@ function fitRowTitles(){
   });
 }
 
+// Anzahl Zeilen, die pro Portion in der Admin-Produktliste gerendert werden.
+// Ohne dieses Limit wuerde z.B. ein Creator mit mehreren tausend Produkten die
+// komplette Zeilenliste (inkl. Eingabefeldern, Drag-Griffen etc.) auf einen
+// Schlag aufbauen -- das laesst die Admin-Oberflaeche kurz haengen. Stattdessen
+// wird nur eine Portion gerendert und die naechste beim Herunterscrollen
+// automatisch nachgelegt (gleiches Muster wie im Storefront-Produktgrid).
+const ADMIN_ROW_CHUNK_SIZE = 50;
+let adminListLoadObserver = null;
+
+// Ersetzt den Inhalt von listEl mit den Zeilen fuer `items`, aber portionsweise
+// statt auf einen Schlag -- siehe ADMIN_ROW_CHUNK_SIZE oben.
+function renderAdminProductRows(listEl, items, all, catLabel){
+  if(adminListLoadObserver){
+    adminListLoadObserver.disconnect();
+    adminListLoadObserver = null;
+  }
+  listEl.innerHTML = "";
+
+  // Kein Treffer, oder sehr alter Browser ohne IntersectionObserver (kein
+  // verlaesslicher Scroll-Trigger verfuegbar): alles sofort rendern, statt
+  // Zeilen vorzuenthalten, die nie nachgeladen wuerden.
+  if(!items.length || !("IntersectionObserver" in window)){
+    listEl.innerHTML = buildAdminProductRows(items, all, catLabel);
+    fitRowTitles();
+    return;
+  }
+
+  let renderedCount = 0;
+  const sentinel = document.createElement("div");
+  sentinel.style.height = "1px";
+  listEl.appendChild(sentinel);
+
+  function renderNextChunk(){
+    const end = Math.min(renderedCount + ADMIN_ROW_CHUNK_SIZE, items.length);
+    const temp = document.createElement("div");
+    temp.innerHTML = buildAdminProductRows(items.slice(renderedCount, end), all, catLabel);
+    const newRows = Array.from(temp.children);
+    newRows.forEach(row => listEl.insertBefore(row, sentinel));
+    renderedCount = end;
+    fitRowTitles(newRows);
+
+    if(renderedCount >= items.length){
+      adminListLoadObserver.disconnect();
+      adminListLoadObserver = null;
+      sentinel.remove();
+      return;
+    }
+
+    // Erneut beobachten, damit der Observer den Intersection-Status an der
+    // aktuellen Position frisch prueft -- sonst wuerde er kein weiteres
+    // Ereignis feuern, wenn das Element schon vorher als sichtbar galt.
+    adminListLoadObserver.unobserve(sentinel);
+    adminListLoadObserver.observe(sentinel);
+  }
+
+  adminListLoadObserver = new IntersectionObserver((entries)=>{
+    if(entries.some(e => e.isIntersecting)) renderNextChunk();
+  }, { rootMargin: "600px 0px" });
+
+  renderNextChunk();
+}
+
 // Aktualisiert nur die Liste + Zaehler, ohne renderDashboard() komplett neu zu bauen \u2014
 // so behaelt das Suchfeld beim Tippen den Fokus (kein kompletter innerHTML-Rebuild).
 function refreshAdminProductList(){
@@ -4111,8 +4181,7 @@ function refreshAdminProductList(){
   if(!listEl || !subEl) return;
   const catLabel = k => (state.categories.find(c => c.key === k) || {}).label || k;
   const items = filteredAdminProducts();
-  listEl.innerHTML = buildAdminProductRows(items, state.products, catLabel);
-  fitRowTitles();
+  renderAdminProductRows(listEl, items, state.products, catLabel);
 
   const total = state.products.length;
   const shown = items.length;
@@ -4550,9 +4619,7 @@ function renderDashboard(){
                   ${(productFilterCat==="all" && productFilterStyle==="all" && productFilterQuery.trim()==="") ? "hidden" : ""}>Filter zurücksetzen</button>
         </div>` : ""}
 
-        <div class="a-list" id="list">
-          ${buildAdminProductRows(filteredAdminProducts(), state.products, catLabel)}
-        </div>
+        <div class="a-list" id="list"></div>
       </div>` : `
       <div class="a-card"><p class="a-empty">Leg oben deinen ersten Creator an, dann kannst du Produkte hinzufügen.</p></div>`}
     </div>`;
@@ -6627,6 +6694,13 @@ function wireSubcatDragReorder(){
 
 function wireDashboard(){
   fitRowTitles();
+
+  const listEl = document.getElementById("list");
+  if(listEl){
+    const catLabel = k => (state.categories.find(c => c.key === k) || {}).label || k;
+    renderAdminProductRows(listEl, filteredAdminProducts(), state.products, catLabel);
+  }
+
   document.getElementById("brandBackToSite").onclick = async ()=>{
     closeAdmin();
     await boot();          // frisch gespeicherte Produkte gleich auf der Website zeigen
