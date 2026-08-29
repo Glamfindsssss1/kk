@@ -5001,31 +5001,44 @@ async function refreshAnalyticsBody(){
   wireKpiCards();
 }
 
-// Der chinesische Partner arbeitet mit Tagesgrenzen nach chinesischer Zeit
-// (00:00 Uhr China = 17:00 bzw. 18:00 unserer Zeit, je nach Sommerzeit) —
-// "Heute"/"7 Tage"/"30 Tage" im Umsatz-Bereich sollen sich also nach dem
-// chinesischen Tageswechsel richten, nicht nach der Zeitzone des Browsers,
-// der die Seite gerade anschaut. China hat konstant UTC+8 (keine eigene
-// Sommerzeit), daher reicht ein fester Offset statt einer echten Zeitzonen-
-// Bibliothek.
-const CHINA_OFFSET_MS = 8 * 3600 * 1000;
+// Der Weidian-Partner hat den taeglichen Reset-Zeitpunkt der Statistiken
+// naeher bestimmt: er liegt empirisch bei 17:00 Uhr deutscher Zeit — nicht,
+// wie zunaechst angenommen, exakt um Mitternacht chinesischer Zeit (das
+// stimmte bei einem echten Zahlenabgleich mit Weidians eigenem "今日"-Bericht
+// nicht ueberein). Deshalb jetzt direkt anhand der Berliner Wanduhrzeit
+// berechnet (inkl. automatischer Sommerzeit-Umstellung ueber die
+// IANA-Zeitzonendatenbank via Intl), unabhaengig davon, in welcher Zeitzone
+// der Browser laeuft, der die Seite gerade anschaut.
+const RESET_HOUR_BERLIN = 17;
 
-// Verschiebt einen Zeitpunkt so, dass seine UTC-Getter (getUTCHours etc.)
-// direkt die chinesische Wanduhrzeit liefern — dadurch bleibt die Berechnung
-// unabhaengig von der Zeitzone des Geraets, auf dem der Code laeuft.
-function chinaWallClock(ms){ return new Date(ms + CHINA_OFFSET_MS); }
-
-// Zeitpunkt (in echten UTC-ms) von 00:00 Uhr chinesischer Zeit, die zuletzt
-// vor `ms` lag oder genau eintrat — der taegliche Reset-Zeitpunkt.
-function chinaDayStartMs(ms){
-  const w = chinaWallClock(ms);
-  return Date.UTC(w.getUTCFullYear(), w.getUTCMonth(), w.getUTCDate()) - CHINA_OFFSET_MS;
+// Liefert den UTC-Offset (in ms) der Zeitzone Europe/Berlin zum Zeitpunkt
+// `ms` — wechselt automatisch zwischen +1h (Winter) und +2h (Sommer).
+function berlinOffsetMs(ms){
+  const parts = {};
+  new Intl.DateTimeFormat("en-US", {
+    timeZone: "Europe/Berlin", hourCycle: "h23",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit"
+  }).formatToParts(new Date(ms)).forEach(p => { if(p.type !== "literal") parts[p.type] = p.value; });
+  const asUtc = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second);
+  return asUtc - ms;
 }
 
-function chinaDateLabel(ms){
-  const w = chinaWallClock(ms);
+// Zeitpunkt (in echten UTC-ms) des letzten taeglichen Resets um 17:00 Uhr
+// Berliner Zeit, der vor `ms` lag oder genau eintrat.
+function resetDayStartMs(ms){
+  const offset = berlinOffsetMs(ms);
+  const wall = new Date(ms + offset);
+  const resetWallMs = Date.UTC(wall.getUTCFullYear(), wall.getUTCMonth(), wall.getUTCDate(), RESET_HOUR_BERLIN, 0, 0);
+  const resetUtcMs = resetWallMs - offset;
+  return resetUtcMs > ms ? resetUtcMs - 24*3600*1000 : resetUtcMs;
+}
+
+function resetDateLabel(ms){
+  const offset = berlinOffsetMs(ms);
+  const wall = new Date(ms + offset);
   const pad = n => String(n).padStart(2,"0");
-  return `${pad(w.getUTCDate())}.${pad(w.getUTCMonth()+1)}.`;
+  return `${pad(wall.getUTCDate())}.${pad(wall.getUTCMonth()+1)}.`;
 }
 
 // ------------------------------------------------------ Weidian-Umsatz (Vorschau)
@@ -5047,9 +5060,9 @@ function buildRevenueSeries(orders, period){
   const now = Date.now();
 
   if(period === "24h"){
-    // 6 Bloecke a 4 Stunden fuer den heutigen Tag, gezaehlt ab 00:00 Uhr
-    // chinesischer Zeit (nicht der Zeitzone des Browsers).
-    const dayStart = chinaDayStartMs(now);
+    // 6 Bloecke a 4 Stunden fuer den heutigen Tag, gezaehlt ab dem letzten
+    // 17-Uhr-Reset (Berliner Zeit, nicht der Zeitzone des Browsers).
+    const dayStart = resetDayStartMs(now);
     const buckets = Array.from({ length: 6 }, (_, i) => ({ revenue: 0, hourStart: i*4 }));
     orders.forEach(o=>{
       const t = new Date(o.date).getTime();
@@ -5076,17 +5089,18 @@ function buildRevenueSeries(orders, period){
     }));
   }
 
-  // "7d" und "30d": ein Punkt pro chinesischem Kalendertag ueber den
-  // jeweiligen Zeitraum (nicht pro rollierendem 24h-Fenster in Browser-Zeit).
+  // "7d" und "30d": ein Punkt pro Reset-Tag (17 Uhr Berliner Zeit bis 17 Uhr
+  // am naechsten Tag) ueber den jeweiligen Zeitraum, nicht pro rollierendem
+  // 24h-Fenster in Browser-Zeit.
   const days = period === "30d" ? 30 : 7;
-  const todayStart = chinaDayStartMs(now);
+  const todayStart = resetDayStartMs(now);
   const buckets = Array.from({ length: days }, (_, i) => ({
     revenue: 0,
     bucketStartMs: todayStart - (days-1-i) * 24*3600*1000
   }));
   orders.forEach(o=>{
     const t = new Date(o.date).getTime();
-    const orderDayStart = chinaDayStartMs(t);
+    const orderDayStart = resetDayStartMs(t);
     const daysAgo = Math.round((todayStart - orderDayStart) / (24*3600*1000));
     const idx = days-1-daysAgo;
     if(idx >= 0 && idx < days) buckets[idx].revenue += o.price;
@@ -5096,7 +5110,7 @@ function buildRevenueSeries(orders, period){
   return buckets.map((b, i) => ({
     revenue: Math.round(b.revenue*100)/100,
     label: (i % labelEvery === 0 || i === days-1)
-      ? chinaDateLabel(b.bucketStartMs)
+      ? resetDateLabel(b.bucketStartMs)
       : ""
   }));
 }
@@ -5616,12 +5630,12 @@ async function renderRevenue(){
       });
 
   // Zeitraum- und Creator-Filter wirken auf echte wie auf Demo-Daten identisch.
-  // Die Grenzen richten sich nach chinesischer Zeit (00:00 Uhr China = Reset-
-  // Zeitpunkt) statt nach einem rollierenden Fenster ab "jetzt" — "Heute"
-  // bedeutet also "seit dem letzten chinesischen Mitternachts-Zeitpunkt",
-  // "7 Tage"/"30 Tage" entsprechend die letzten N vollen chinesischen Tage.
+  // Die Grenzen richten sich nach dem 17-Uhr-Reset (Berliner Zeit, siehe
+  // resetDayStartMs oben) statt nach einem rollierenden Fenster ab "jetzt" —
+  // "Heute" bedeutet also "seit dem letzten 17-Uhr-Reset", "7 Tage"/"30 Tage"
+  // entsprechend die letzten N vollen Reset-Tage.
   const periodDays = { "24h": 1, "7d": 7, "30d": 30, all: null }[revenuePeriod];
-  const cutoff = periodDays === null ? -Infinity : chinaDayStartMs(Date.now()) - (periodDays-1) * 24*3600*1000;
+  const cutoff = periodDays === null ? -Infinity : resetDayStartMs(Date.now()) - (periodDays-1) * 24*3600*1000;
   const filteredOrders = demoOrders.filter(o => {
     if(new Date(o.date).getTime() < cutoff) return false;
     if(revenueCreatorId !== "all" && o.creator?.id !== revenueCreatorId) return false;
