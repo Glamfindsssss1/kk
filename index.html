@@ -7672,10 +7672,12 @@ const CREATOR_DEFAULTS = {
 
 // ---------- Daten aus Supabase ----------
 async function loadData(){
-  let q = sb.from("creators").select("*").order("created_at").limit(1);
-  if(SLUG) q = sb.from("creators").select("*").eq("slug", SLUG).limit(1);
-
-  const { data: rows, error } = await q;
+  // Laeuft ueber gezielte DB-Funktionen statt einer offenen Tabellenabfrage --
+  // so kann niemand ohne bekannten Slug die komplette Creator-Liste auslesen
+  // (siehe Migration lock_down_creators_public_read).
+  const { data: rows, error } = SLUG
+    ? await sb.rpc("get_creator_by_slug", { p_slug: SLUG })
+    : await sb.rpc("get_default_creator");
   if(error){ console.warn(error); return; }
 
   CREATOR_ROW = rows && rows[0];
