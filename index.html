@@ -2498,12 +2498,29 @@ function buildProductCard(p, indexInGrid = 0){
       </div>
     </div>`;
 
-  card.querySelector(".p-heart").onclick = ()=>{
+  const heartBtn = card.querySelector(".p-heart");
+  heartBtn.onclick = ()=>{
     if(pageWishlist.includes(p.id)) pageWishlist = pageWishlist.filter(x=>x!==p.id);
     else pageWishlist.push(p.id);
     localStorage.setItem("creator_wishlist", JSON.stringify(pageWishlist));
     updateWishButton();
-    update();
+
+    if(wishOnly){
+      // Nur hier muss die Karte tatsaechlich aus der Liste verschwinden --
+      // deshalb bleibt der komplette Neuaufbau hier noetig.
+      update();
+      return;
+    }
+    // Ueberall sonst (v.a. auf der Startseite/"Vorschau") reicht es, nur den
+    // Button selbst umzuschalten. Ein voller update()-Aufruf wuerde das
+    // GESAMTE Grid neu aufbauen -- das war der Grund fuer das Ruckeln/
+    // "Bug"-Gefuehl, wenn man mitten im Scrollen etwas liked: Bilder und
+    // Layout aller Karten wurden dabei kurz neu erzeugt.
+    const nowWished = pageWishlist.includes(p.id);
+    heartBtn.classList.toggle("active", nowWished);
+    heartBtn.setAttribute("aria-pressed", String(nowWished));
+    heartBtn.setAttribute("aria-label", `${nowWished ? t.wishRemove : t.wishAdd}: ${p.name}`);
+    heartBtn.textContent = nowWished ? "♥" : "♡";
   };
 
   // Ohne hinterlegten Link nicht nach oben springen
