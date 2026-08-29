@@ -5152,18 +5152,10 @@ async function renderShopAssign(){
             : `<span class="a-cred-dot"></span> Noch keine Zugangsdaten hinterlegt`}
         </div>
         ${credStatus ? `
-          ${!credStatus.access_token ? `
-            <p class="a-hint" style="margin-top:12px">
-              App Key/Secret sind gespeichert, aber Bestelldaten geh\u00f6ren dem Shop \u2014 Weidian verlangt daf\u00fcr, dass sich der Shop-Besitzer einmal einloggt und den Zugriff best\u00e4tigt.
-            </p>
-            <button type="button" class="a-btn a-btn-primary" id="credConnectBtn" style="margin-top:8px;width:100%">Mit Weidian verbinden</button>
-          ` : `
-            <button type="button" class="a-btn a-btn-primary" id="credSyncBtn" style="margin-top:12px;width:100%">
-              ${REFRESH_SVG}
-              <span>Jetzt mit Weidian synchronisieren</span>
-            </button>
-            <button type="button" class="a-btn a-btn-ghost" id="credConnectBtn" style="margin-top:8px;width:100%">Erneut mit Weidian verbinden</button>
-          `}
+          <button type="button" class="a-btn a-btn-primary" id="credSyncBtn" style="margin-top:12px;width:100%">
+            ${REFRESH_SVG}
+            <span>Jetzt mit Weidian synchronisieren</span>
+          </button>
           <p class="a-hint" id="credSyncStatus" style="margin-top:8px"></p>
         ` : ""}
         <form id="credForm" class="a-grid" style="margin-top:16px">
