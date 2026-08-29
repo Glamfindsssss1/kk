@@ -7055,6 +7055,51 @@ function wireDashboard(){
     refresh();
   };
 
+  // Verkleinert ein hochgeladenes Bild im Browser, BEVOR es hochgeladen wird --
+  // angezeigt wird es auf der Seite ohnehin nie groesser als eine kleine Kachel,
+  // das Originalfoto direkt vom Handy (oft mehrere MB) bringt also keinerlei
+  // sichtbaren Vorteil, nur unnoetig lange Ladezeit und hohen Speicherverbrauch
+  // (das duerfte auch der Grund fuer das gemeldete kurze "Verschwinden" von
+  // Bildern beim Scrollen auf iOS Safari sein: der Browser wirft bei zu vielen
+  // grossen Bildern welche aus dem Speicher und muss sie beim Wiedersichtbarwerden
+  // neu entschluesseln). Am sichtbaren Ergebnis auf der Seite aendert sich dadurch
+  // NICHTS -- nur die Datei dahinter wird kleiner:
+  //  - PNG bleibt PNG (Transparenz von Logos/Avataren darf nicht verloren gehen),
+  //    wird aber auf die Zielmasse herunterskaliert.
+  //  - alles andere (i.d.R. Fotos direkt von der Kamera) wird als JPEG mit hoher
+  //    Qualitaet neu komprimiert, das schrumpft am meisten.
+  // Schlaegt irgendein Schritt fehl (z.B. sehr alter Browser ohne createImageBitmap),
+  // wird einfach die Originaldatei genommen -- der Upload soll daran nie scheitern.
+  const IMAGE_MAX_DIMENSION = 1000; // px, laengste Seite -- reicht fuer jede Anzeigegroesse auf der Seite
+  const IMAGE_JPEG_QUALITY = 0.82;
+  const IMAGE_SKIP_BELOW_BYTES = 300 * 1024; // schon kleine Dateien nicht extra anfassen
+
+  async function compressImageForUpload(file){
+    if(!file.type.startsWith("image/") || file.type === "image/svg+xml") return file;
+    if(file.size <= IMAGE_SKIP_BELOW_BYTES) return file;
+    try{
+      const bitmap = await createImageBitmap(file);
+      const scale = Math.min(1, IMAGE_MAX_DIMENSION / Math.max(bitmap.width, bitmap.height));
+      const w = Math.max(1, Math.round(bitmap.width * scale));
+      const h = Math.max(1, Math.round(bitmap.height * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d").drawImage(bitmap, 0, 0, w, h);
+      bitmap.close?.();
+
+      const keepsPng = file.type === "image/png";
+      const mime = keepsPng ? "image/png" : "image/jpeg";
+      const quality = keepsPng ? undefined : IMAGE_JPEG_QUALITY;
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, mime, quality));
+      if(!blob || blob.size >= file.size) return file; // keine echte Ersparnis -- Original behalten
+
+      const newName = keepsPng ? file.name : file.name.replace(/\.\w+$/, "") + ".jpg";
+      return new File([blob], newName, { type: mime });
+    } catch {
+      return file;
+    }
+  }
+
   // Ein Upload-Helfer fuer alle drei Bildfelder statt drei Kopien
   function wireUpload(inputId, labelId, previewId, folder, onDone){
     const input = document.getElementById(inputId);
@@ -7066,9 +7111,10 @@ function wireDashboard(){
       const before = lbl.textContent;
       lbl.textContent = "L\u00e4dt hoch \u2026";
 
-      const ext  = (f.name.split(".").pop() || "jpg").toLowerCase();
+      const compressed = await compressImageForUpload(f);
+      const ext  = (compressed.name.split(".").pop() || "jpg").toLowerCase();
       const path = `${folder}/${crypto.randomUUID()}.${ext}`;
-      const { error } = await sb.storage.from("products").upload(path, f, { cacheControl:"31536000" });
+      const { error } = await sb.storage.from("products").upload(path, compressed, { cacheControl:"31536000" });
       if(error){ lbl.textContent = before; return atoast("Upload: " + error.message, "err"); }
 
       const url  = sb.storage.from("products").getPublicUrl(path).data.publicUrl;
@@ -7091,11 +7137,12 @@ function wireDashboard(){
     if(!f) return;
     const status = document.getElementById("p-uploadlabel");
     status.textContent = "Lädt hoch …";
-    const ext = (f.name.split(".").pop() || "jpg").toLowerCase();
+    const compressed = await compressImageForUpload(f);
+    const ext = (compressed.name.split(".").pop() || "jpg").toLowerCase();
     const active = state.creators.find(c => c.id === state.activeId);
     const path = `${active ? active.slug : "alle-creator"}/${crypto.randomUUID()}.${ext}`;
 
-    const { error } = await sb.storage.from("products").upload(path, f, { cacheControl:"31536000" });
+    const { error } = await sb.storage.from("products").upload(path, compressed, { cacheControl:"31536000" });
     if(error){ status.textContent = "Bild wählen"; return atoast("Upload: " + error.message, "err"); }
 
     uploadedUrl = sb.storage.from("products").getPublicUrl(path).data.publicUrl;
@@ -7128,11 +7175,12 @@ function wireDashboard(){
     if(!f) return;
     const status = document.getElementById("e-uploadlabel");
     status.textContent = "Lädt hoch …";
-    const ext = (f.name.split(".").pop() || "jpg").toLowerCase();
+    const compressed = await compressImageForUpload(f);
+    const ext = (compressed.name.split(".").pop() || "jpg").toLowerCase();
     const active = state.creators.find(c => c.id === state.activeId);
     const path = `${active ? active.slug : "alle-creator"}/${crypto.randomUUID()}.${ext}`;
 
-    const { error } = await sb.storage.from("products").upload(path, f, { cacheControl:"31536000" });
+    const { error } = await sb.storage.from("products").upload(path, compressed, { cacheControl:"31536000" });
     if(error){ status.textContent = "Bild ändern"; return atoast("Upload: " + error.message, "err"); }
 
     editedImageUrl = sb.storage.from("products").getPublicUrl(path).data.publicUrl;
