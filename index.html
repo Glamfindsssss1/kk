@@ -5097,6 +5097,19 @@ let shopAssignSlots = [null, null, null]; // Creator-IDs in den 3 Slots
 // app_key selbst aus, nur ob eine aktive Zeile existiert. Der eigentliche
 // Schluessel geht spaeter direkt an eine Edge Function und wird nie im
 // Browser-State gehalten.
+// Liefert die Shops, denen bereits ECHTE synchronisierte Bestellungen
+// zugeordnet sind (siehe weidian_shop_id in weidian_orders) — das sind die
+// tatsaechlichen Shops, denen ein Creator zugewiesen werden kann. Gibt null
+// zurueck, solange noch keine Synchronisierung gelaufen ist; die Aufrufer
+// fallen dann auf ihre bisherige Demo-Shop-Liste zurueck (siehe
+// renderShopAssign und den Weidian-Shop-Dropdown im Creator-Formular).
+async function loadRealWeidianShops(labelForSingleShop){
+  const { data } = await sb.from("weidian_orders").select("weidian_shop_id").limit(1000);
+  const ids = [...new Set((data || []).map(r => r.weidian_shop_id).filter(Boolean))];
+  if(!ids.length) return null;
+  return ids.map(id => ({ id, name: (labelForSingleShop && ids.length === 1) ? labelForSingleShop : `Shop ${id}` }));
+}
+
 async function loadWeidianCredentialStatus(){
   // access_token wird nur als Ja/Nein-Signal gebraucht (siehe unten in
   // renderShopAssign) — der Wert selbst wird nie im UI angezeigt.
@@ -5112,7 +5125,13 @@ async function loadWeidianCredentialStatus(){
 
 async function renderShopAssign(){
   const credStatus = await loadWeidianCredentialStatus();
-  const DEMO_WEIDIAN_SHOPS = [
+  // Sobald mindestens eine Synchronisierung gelaufen ist, ersetzen die
+  // tatsaechlichen Shops (aus den echten Bestellungen) die Vorschau-Liste \u2014
+  // sonst blieb "Shop-Zuweisung" nach der ersten echten Synchronisierung
+  // wirkungslos, weil Creator weiterhin erfundenen Demo-Shop-IDs zugewiesen
+  // wurden, die in keiner echten Bestellung vorkommen.
+  const realShops = await loadRealWeidianShops(credStatus?.label);
+  const DEMO_WEIDIAN_SHOPS = realShops || [
     { id: "wd_10231", name: "Coco Finds \u5c0f\u5e97" },
     { id: "wd_10455", name: "Old Money Vault" },
     { id: "wd_10902", name: "Streetline CN" },
@@ -5170,14 +5189,16 @@ async function renderShopAssign(){
         ${credStatus ? `
           <div class="a-cred-shops">
             <div class="a-cred-shops-head">
-              <p class="a-block-title" style="margin:0">Shops in diesem Konto <span class="an-preview-badge" style="vertical-align:middle;margin-left:4px">Vorschau</span></p>
+              <p class="a-block-title" style="margin:0">Shops in diesem Konto ${realShops ? "" : `<span class="an-preview-badge" style="vertical-align:middle;margin-left:4px">Vorschau</span>`}</p>
               <button type="button" class="a-btn a-btn-ghost" id="credShopsRefresh">
                 ${REFRESH_SVG}
                 <span>Aktualisieren</span>
               </button>
             </div>
             <p class="a-hint" style="margin:6px 0 14px">
-              Diese Liste kommt sp\u00e4ter direkt von der Weidian-API und zeigt automatisch alle Shops, die mit diesem App Key verkn\u00fcpft sind. Bis dahin siehst du hier Beispiel-Shops zur Layout-Vorschau.
+              ${realShops
+                ? "Diese Shops stammen aus deinen zuletzt synchronisierten Bestellungen."
+                : "Diese Liste kommt sp\u00e4ter direkt von der Weidian-API und zeigt automatisch alle Shops, die mit diesem App Key verkn\u00fcpft sind. Bis dahin siehst du hier Beispiel-Shops zur Layout-Vorschau."}
             </p>
             <div class="a-cred-shop-list" id="credShopList">
               ${DEMO_WEIDIAN_SHOPS.map(s => `
@@ -5195,7 +5216,7 @@ async function renderShopAssign(){
 
       <div class="a-card">
         <div class="a-head">
-          <h2 class="a-h2">Shop-Zuweisung <span class="an-preview-badge" style="vertical-align:middle;margin-left:6px">Vorschau</span></h2>
+          <h2 class="a-h2">Shop-Zuweisung ${realShops ? "" : `<span class="an-preview-badge" style="vertical-align:middle;margin-left:6px">Vorschau</span>`}</h2>
           <p class="a-sub">Ziehe drei Creator in die Kreise oder tippe sie an, um sie einer Dreiergruppe zuzuordnen. Ist die Gruppe voll, kannst du ihr gemeinsam einen Weidian-Shop zuweisen.</p>
         </div>
 
@@ -5327,10 +5348,8 @@ async function renderShopAssign(){
     const prevHtml = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = `<span>L\u00e4dt \u2026</span>`;
-    await new Promise(r => setTimeout(r, 500));
-    btn.disabled = false;
-    btn.innerHTML = prevHtml;
-    atoast("Shop-Liste aktualisiert (Vorschau-Daten).");
+    await renderShopAssign();
+    atoast(realShops ? "Shop-Liste aktualisiert." : "Shop-Liste aktualisiert (Vorschau-Daten).");
   });
 
   // Loest den echten Bestellabruf aus: ruft die weidian-sync Edge Function
@@ -5473,11 +5492,11 @@ async function renderShopAssign(){
       const shopName = DEMO_WEIDIAN_SHOPS.find(s => s.id === shopId)?.name || shopId;
       const ids = shopAssignSlots.filter(Boolean);
       assignBtn.disabled = true;
-      // weidian_shop_id ist jetzt eine echte Spalte in Supabase — die
-      // Zuweisung wird dauerhaft gespeichert, nicht mehr nur im Browser
-      // gehalten. Die Shop-NAMEN selbst (DEMO_WEIDIAN_SHOPS) sind weiterhin
-      // Vorschau-Daten, bis die echte Weidian-API die tatsaechliche Shop-
-      // Liste liefert — nur die Zuordnung Creator-zu-Shop-ID ist schon real.
+      // weidian_shop_id ist eine echte Spalte in Supabase — die Zuweisung
+      // wird dauerhaft gespeichert. DEMO_WEIDIAN_SHOPS enthaelt an dieser
+      // Stelle bereits die echten, aus weidian_orders abgeleiteten Shops
+      // (siehe realShops oben), sobald mindestens einmal synchronisiert
+      // wurde — vorher noch die Demo-Namen zur Layout-Vorschau.
       const { error } = await sb.from("creators").update({ weidian_shop_id: shopId }).in("id", ids);
       if(error){
         atoast("Konnte Zuweisung nicht speichern: " + error.message, "err");
@@ -6562,6 +6581,7 @@ function wireDashboard(){
     { id: "wd_11187", name: "Aurora Picks" },
     { id: "wd_11340", name: "Northbound Store" }
   ];
+  let WEIDIAN_SHOPS = DEMO_WEIDIAN_SHOPS;
   // Mehrere Creator koennen sich einen Shop teilen (begrenzte Shop-Anzahl beim
   // Weidian-Konto) — maximal 3 Creator pro Shop, damit der Gesamtumsatz eines
   // Shops noch halbwegs einem einzelnen Creator zurechenbar bleibt.
@@ -6585,21 +6605,22 @@ function wireDashboard(){
         return `<option value="${aesc(s.id)}" ${s.id===selectedId?"selected":""}>${aesc(s.name)}${suffix}</option>`;
       }).join("");
   }
-  populateWeidianShops(DEMO_WEIDIAN_SHOPS, "");
+  populateWeidianShops(WEIDIAN_SHOPS, "");
+  loadRealWeidianShops().then(real => {
+    if(real){ WEIDIAN_SHOPS = real; populateWeidianShops(WEIDIAN_SHOPS, weidianSelect.value); }
+  });
 
   document.getElementById("c-weidianrefresh").onclick = async (e)=>{
     const btn = e.currentTarget;
     const prevHtml = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = `<span>L\u00e4dt \u2026</span>`;
-    // Kuenstliche Verzoegerung, damit sich der Ladezustand wie ein echter
-    // API-Aufruf anfuehlt — durch den echten sb.functions.invoke(...) ersetzen,
-    // sobald die Weidian-Anbindung steht.
-    await new Promise(r => setTimeout(r, 500));
-    populateWeidianShops(DEMO_WEIDIAN_SHOPS, weidianSelect.value);
+    const real = await loadRealWeidianShops();
+    if(real) WEIDIAN_SHOPS = real;
+    populateWeidianShops(WEIDIAN_SHOPS, weidianSelect.value);
     btn.disabled = false;
     btn.innerHTML = prevHtml;
-    atoast("Shop-Liste aktualisiert (Vorschau-Daten).");
+    atoast(real ? "Shop-Liste aktualisiert." : "Shop-Liste aktualisiert (Vorschau-Daten).");
   };
 
   function closeForm(){
@@ -6609,7 +6630,7 @@ function wireDashboard(){
     newAvatarUrl = ""; newPromoLogoUrl = "";
     setPrev("c-avatarprev", ""); setPrev("c-promologoprev", "");
     shareLinkInput.value = "";
-    populateWeidianShops(DEMO_WEIDIAN_SHOPS, "");
+    populateWeidianShops(WEIDIAN_SHOPS, "");
     toggle.textContent = "+ Neuer Creator";
     if(editBtn) editBtn.textContent = "Bearbeiten";
   }
@@ -6650,7 +6671,7 @@ function wireDashboard(){
       document.getElementById("c-promologolabel").textContent = newPromoLogoUrl ? "Bild \u00e4ndern" : "Bild w\u00e4hlen";
       // weidian_shop_id existiert in der Datenbank noch nicht (Vorschau-Feature) —
       // ?. faengt das ab, damit bestehende Creator ohne dieses Feld nicht brechen.
-      populateWeidianShops(DEMO_WEIDIAN_SHOPS, c.weidian_shop_id ?? "");
+      populateWeidianShops(WEIDIAN_SHOPS, c.weidian_shop_id ?? "");
       // "Standard uebernehmen" macht nur beim Bearbeiten eines bestehenden
       // Creators Sinn — beim Neuanlegen passiert die Kopie automatisch nach
       // dem Speichern (siehe cForm.onsubmit weiter unten).
@@ -6659,7 +6680,7 @@ function wireDashboard(){
     } else {
       newAvatarUrl = ""; newPromoLogoUrl = "";
       setPrev("c-avatarprev", ""); setPrev("c-promologoprev", "");
-      populateWeidianShops(DEMO_WEIDIAN_SHOPS, "");
+      populateWeidianShops(WEIDIAN_SHOPS, "");
       const applyBtn = document.getElementById("c-applyDefaultCats");
       if(applyBtn) applyBtn.closest(".a-full").style.display = "none";
     }
