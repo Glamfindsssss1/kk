@@ -948,12 +948,14 @@
   /* Liste aller aktiven Weidian-Verbindungen (beliebig viele Shops) */
   .a-cred-list{display:flex;flex-direction:column;max-height:360px;overflow-y:auto;
     border:1px solid var(--border);border-radius:10px;}
-  .a-cred-row{display:flex;align-items:center;gap:12px;padding:11px 14px;border-top:1px solid #eff1f4;}
+  .a-cred-row{padding:11px 14px;border-top:1px solid #eff1f4;}
   .a-cred-row:first-child{border-top:none;}
+  .a-cred-row-top{display:flex;align-items:center;gap:12px;}
   .a-cred-row .a-cred-dot{background:#10b981;}
   .a-cred-row .a-cred-sync-one{flex:0 0 auto;padding:8px;}
   .a-cred-row .a-cred-sync-one svg{margin:0;}
   .a-cred-row .a-cred-delete{flex:0 0 auto;color:#dc2626;}
+  .a-cred-row-status{margin:6px 0 0 20px;}
 
   /* Shop-Liste im Weidian-API-Verbindungsformular */
   .a-cred-shops{margin-top:22px;padding-top:18px;border-top:1px solid #eff1f4;}
@@ -5213,15 +5215,18 @@ async function renderShopAssign(){
           <div class="a-cred-list" id="credList">
             ${credentials.map(c => `
               <div class="a-cred-row" data-cred="${aesc(c.id)}">
-                <span class="a-cred-dot"></span>
-                <div class="an-top-info">
-                  <div class="an-top-name">${aesc(c.label || "Ohne Bezeichnung")}</div>
-                  <div class="an-top-meta">seit ${new Date(c.created_at).toLocaleDateString("de-DE")}</div>
+                <div class="a-cred-row-top">
+                  <span class="a-cred-dot"></span>
+                  <div class="an-top-info">
+                    <div class="an-top-name">${aesc(c.label || "Ohne Bezeichnung")}</div>
+                    <div class="an-top-meta">seit ${new Date(c.created_at).toLocaleDateString("de-DE")}</div>
+                  </div>
+                  <button type="button" class="a-btn a-btn-ghost a-cred-sync-one" data-cred="${aesc(c.id)}" title="Nur diesen Shop synchronisieren">
+                    ${REFRESH_SVG}
+                  </button>
+                  <button type="button" class="a-btn a-btn-ghost a-cred-delete" data-cred="${aesc(c.id)}" title="Verbindung endg\u00fcltig l\u00f6schen">L\u00f6schen</button>
                 </div>
-                <button type="button" class="a-btn a-btn-ghost a-cred-sync-one" data-cred="${aesc(c.id)}" title="Nur diesen Shop synchronisieren">
-                  ${REFRESH_SVG}
-                </button>
-                <button type="button" class="a-btn a-btn-ghost a-cred-delete" data-cred="${aesc(c.id)}" title="Verbindung endg\u00fcltig l\u00f6schen">L\u00f6schen</button>
+                <p class="a-hint a-cred-row-status" id="credRowStatus-${aesc(c.id)}" style="display:none"></p>
               </div>`).join("")}
           </div>
           <button type="button" class="a-btn a-btn-primary" id="credSyncBtn" style="margin-top:12px;width:100%">
@@ -5416,6 +5421,18 @@ async function renderShopAssign(){
   // Synchronisiert genau EINEN Shop statt aller \u2014 ruft dieselbe Funktion wie
   // der grosse Sync-Button auf, aber mit credentialId im Body, damit die
   // Funktion nur diese eine Verbindung abarbeitet (siehe weidian-sync).
+  // Schreibt das Sync-Ergebnis eines einzelnen Shops sichtbar unter dessen
+  // Zeile (gruen bei Erfolg, rot mit Fehlertext sonst) \u2014 genutzt sowohl vom
+  // Einzel-Sync-Button pro Zeile als auch vom grossen "Alle synchronisieren"-
+  // Button (der jede Zeile anhand von data.results einzeln aktualisiert).
+  function showCredRowStatus(credId, text, isError){
+    const el = document.getElementById(`credRowStatus-${credId}`);
+    if(!el) return;
+    el.style.display = "block";
+    el.textContent = text;
+    el.style.color = isError ? "#dc2626" : "#059669";
+  }
+
   document.querySelectorAll(".a-cred-sync-one").forEach(btn=>{
     btn.onclick = async ()=>{
       const credId = btn.dataset.cred;
@@ -5424,6 +5441,7 @@ async function renderShopAssign(){
       const prevHtml = btn.innerHTML;
       btn.disabled = true;
       btn.innerHTML = `<span>\u2026</span>`;
+      showCredRowStatus(credId, "Synchronisiere \u2026", false);
 
       const { data, error } = await sb.functions.invoke("weidian-sync", { body: { credentialId: credId } });
 
@@ -5436,14 +5454,17 @@ async function renderShopAssign(){
           const body = await error.context?.json?.();
           if(body?.error) detail = body.error;
         } catch { /* Antwort war kein JSON \u2014 bei der generischen Meldung bleiben */ }
+        showCredRowStatus(credId, "Fehler: " + detail, true);
         atoast(`Sync f\u00fcr \u201e${name}" fehlgeschlagen: ${detail}`, "err");
         return;
       }
       const oneResult = data?.results?.[0];
       if(oneResult?.error){
+        showCredRowStatus(credId, "Weidian meldet: " + oneResult.error, true);
         atoast(`Weidian meldet f\u00fcr \u201e${name}": ${oneResult.error}`, "err");
         return;
       }
+      showCredRowStatus(credId, `${data?.ordersFetched ?? 0} Bestellungen synchronisiert.`, false);
       atoast(`\u201e${name}" synchronisiert \u2014 ${data?.ordersFetched ?? 0} Bestellungen.`);
     };
   });
@@ -5505,6 +5526,13 @@ async function renderShopAssign(){
     // Ergebnis (results) \u2014 schlaegt einzelne Shops fehl, laeuft der Sync fuer
     // die uebrigen trotzdem durch; das zeigen wir hier zusammengefasst an,
     // statt bei einem einzelnen Fehler alles als gescheitert zu melden.
+    // Jede Zeile bekommt ihr eigenes Ergebnis angezeigt, nicht nur die
+    // zusammengefasste Meldung unter dem grossen Button.
+    (data?.results || []).forEach(r => {
+      if(r.error) showCredRowStatus(r.id, "Fehler: " + r.error, true);
+      else showCredRowStatus(r.id, `${r.ordersFetched ?? 0} Bestellungen synchronisiert.`, false);
+    });
+
     const failed = (data?.results || []).filter(r => r.error);
     if(failed.length){
       statusEl.textContent = `${data?.ordersFetched ?? 0} Bestellungen abgerufen \u2014 ${failed.length} Shop(s) fehlgeschlagen: ${failed.map(r => `${r.label || r.appKeySuffix}: ${r.error}`).join("; ")}`;
