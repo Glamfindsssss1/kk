@@ -5098,8 +5098,10 @@ let shopAssignSlots = [null, null, null]; // Creator-IDs in den 3 Slots
 // Schluessel geht spaeter direkt an eine Edge Function und wird nie im
 // Browser-State gehalten.
 async function loadWeidianCredentialStatus(){
+  // access_token wird nur als Ja/Nein-Signal gebraucht (siehe unten in
+  // renderShopAssign) — der Wert selbst wird nie im UI angezeigt.
   const { data, error } = await sb.from("weidian_credentials")
-    .select("id, label, created_at, updated_at")
+    .select("id, label, created_at, updated_at, access_token")
     .eq("is_active", true)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -5150,10 +5152,18 @@ async function renderShopAssign(){
             : `<span class="a-cred-dot"></span> Noch keine Zugangsdaten hinterlegt`}
         </div>
         ${credStatus ? `
-          <button type="button" class="a-btn a-btn-primary" id="credSyncBtn" style="margin-top:12px;width:100%">
-            ${REFRESH_SVG}
-            <span>Jetzt mit Weidian synchronisieren</span>
-          </button>
+          ${!credStatus.access_token ? `
+            <p class="a-hint" style="margin-top:12px">
+              App Key/Secret sind gespeichert, aber Bestelldaten geh\u00f6ren dem Shop \u2014 Weidian verlangt daf\u00fcr, dass sich der Shop-Besitzer einmal einloggt und den Zugriff best\u00e4tigt.
+            </p>
+            <button type="button" class="a-btn a-btn-primary" id="credConnectBtn" style="margin-top:8px;width:100%">Mit Weidian verbinden</button>
+          ` : `
+            <button type="button" class="a-btn a-btn-primary" id="credSyncBtn" style="margin-top:12px;width:100%">
+              ${REFRESH_SVG}
+              <span>Jetzt mit Weidian synchronisieren</span>
+            </button>
+            <button type="button" class="a-btn a-btn-ghost" id="credConnectBtn" style="margin-top:8px;width:100%">Erneut mit Weidian verbinden</button>
+          `}
           <p class="a-hint" id="credSyncStatus" style="margin-top:8px"></p>
         ` : ""}
         <form id="credForm" class="a-grid" style="margin-top:16px">
@@ -5262,6 +5272,25 @@ async function renderShopAssign(){
   };
   document.getElementById("signout").onclick = async ()=>{ await sb.auth.signOut(); refresh(); };
 
+  // Nach Rueckkehr von weidian-oauth-callback (siehe credConnectBtn unten)
+  // haengt hier ein Ergebnis-Query-Param an. Einmalig als Toast anzeigen und
+  // aus der URL entfernen, damit ein Neuladen der Seite ihn nicht wiederholt.
+  {
+    const params = new URLSearchParams(window.location.search);
+    const oauthResult = params.get("weidian_oauth");
+    if(oauthResult){
+      if(oauthResult === "success"){
+        atoast("Erfolgreich mit Weidian verbunden.");
+      } else {
+        atoast("Verbindung mit Weidian fehlgeschlagen" + (params.get("weidian_oauth_msg") ? ": " + params.get("weidian_oauth_msg") : "") + ".", "err");
+      }
+      params.delete("weidian_oauth");
+      params.delete("weidian_oauth_msg");
+      const newSearch = params.toString();
+      history.replaceState(null, "", window.location.pathname + (newSearch ? "?" + newSearch : "") + window.location.hash);
+    }
+  }
+
   // Weidian-Zugangsdaten speichern. Schreibt direkt in die weidian_credentials-
   // Tabelle (RLS beschraenkt Zugriff auf Admins) — der Wert selbst wird nie
   // wieder ausgelesen/angezeigt, nur der Verbindungsstatus (siehe
@@ -5356,6 +5385,28 @@ async function renderShopAssign(){
     statusEl.textContent = `${data?.ordersFetched ?? 0} Bestellungen abgerufen.`;
     statusEl.style.color = "#059669";
     atoast(`Synchronisierung erfolgreich \u2014 ${data?.ordersFetched ?? 0} Bestellungen.`);
+  });
+
+  // Startet den OAuth-Verbindungsvorgang: weidian-oauth-start liefert eine
+  // Weidian-Login/Bestaetigungs-URL samt einmaligem state, zu der wir die
+  // ganze Seite weiterleiten (nicht nur ein Fetch \u2014 der Shop-Besitzer muss
+  // sich dort wirklich einloggen). Nach Bestaetigung leitet Weidian ueber
+  // weidian-oauth-callback wieder hierher zurueck (siehe Query-Param-
+  // Auswertung unten in renderShopAssign).
+  document.getElementById("credConnectBtn")?.addEventListener("click", async (e)=>{
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    btn.textContent = "\u00d6ffne Weidian \u2026";
+    const { data, error } = await sb.functions.invoke("weidian-oauth-start", {
+      body: { returnTo: window.location.href },
+    });
+    if(error || !data?.url){
+      atoast("Verbindung zu Weidian konnte nicht gestartet werden: " + (error?.message || "unbekannter Fehler"), "err");
+      btn.disabled = false;
+      btn.textContent = "Mit Weidian verbinden";
+      return;
+    }
+    window.location.href = data.url;
   });
 
   // Loest eine ganze Gruppe wieder auf: weidian_shop_id bei allen zugehoerigen
