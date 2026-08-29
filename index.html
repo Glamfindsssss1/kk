@@ -2429,13 +2429,30 @@ function renderSectionHead(){
   productCount.hidden = !inSubView;
 }
 
-// So viele Produktbilder pro Raster laden sofort (kein loading="lazy") --
-// deckt in etwa ab, was auf den meisten Bildschirmgroessen ohne Scrollen
-// sichtbar ist. Erst danach kommende Bilder werden verzoegert geladen: sonst
-// wuerde Lazy-Loading genau die Bilder verlangsamen, die als erstes zu sehen
-// sind (auf dem Handy besonders spuerbar), statt nur die, die man erst durch
-// Scrollen erreicht.
+// So viele Produktbilder pro Raster laden sofort -- deckt in etwa ab, was auf
+// den meisten Bildschirmgroessen ohne Scrollen sichtbar ist.
 const EAGER_IMAGE_COUNT = 8;
+
+// Fuer die restlichen Bilder reicht das native loading="lazy" nicht: Browser
+// laden dabei oft erst kurz bevor ein Bild sichtbar wird nach, was bei
+// schnellem Scrollen (v.a. auf dem Handy) als kurzes Nachpoppen auffaellt.
+// Dieser IntersectionObserver startet das Laden stattdessen schon 1000px
+// VOR dem sichtbaren Bereich (grosszuegiger Vorlauf in Scrollrichtung) --
+// bei normalem Scrolltempo ist das Bild dann laengst fertig, wenn es
+// tatsaechlich in Sicht kommt. Ein Bild wird ueber data-src zurueckgehalten
+// (kein src = kein Laden) und bekommt sein echtes src erst, wenn es in
+// diesen Vorlaufbereich eintritt; danach wird es nicht mehr beobachtet.
+const lazyImageObserver = ("IntersectionObserver" in window)
+  ? new IntersectionObserver((entries)=>{
+      entries.forEach(entry=>{
+        if(!entry.isIntersecting) return;
+        const img = entry.target;
+        img.src = img.dataset.src;
+        img.removeAttribute("data-src");
+        lazyImageObserver.unobserve(img);
+      });
+    }, { rootMargin: "1000px 0px" })
+  : null;
 
 function buildProductCard(p, indexInGrid = 0){
   const isWished = pageWishlist.includes(p.id);
@@ -2444,10 +2461,15 @@ function buildProductCard(p, indexInGrid = 0){
   const card = document.createElement("div");
   card.className = "p-card";
   card.dataset.id = p.id;
-  const imgLoading = indexInGrid < EAGER_IMAGE_COUNT ? "eager" : "lazy";
+  // Ohne IntersectionObserver-Unterstuetzung (sehr alte Browser) oder unter
+  // dem Eager-Limit: ganz normal sofort laden, kein Vorlauf-Trick noetig.
+  const isEager = indexInGrid < EAGER_IMAGE_COUNT || !lazyImageObserver;
+  const imgTag = !p.img ? "" : isEager
+    ? `<img class="p-img" src="${p.img}" alt="">`
+    : `<img class="p-img p-img-lazy" data-src="${p.img}" alt="">`;
   card.innerHTML = `
     <div class="p-thumb">
-      ${p.img ? `<img class="p-img" src="${p.img}" alt="" loading="${imgLoading}">` : ""}
+      ${imgTag}
       ${p.discountLabel ? `<span class="p-discount-badge" style="background:${p.discountColor||'#e11d48'}">${p.discountLabel}</span>` : ""}
       <button class="p-heart ${isWished?'active':''}" type="button" aria-pressed="${isWished}"
               aria-label="${isWished ? t.wishRemove : t.wishAdd}: ${p.name}">${isWished?'\u2665':'\u2661'}</button>
@@ -2489,6 +2511,11 @@ function buildProductCard(p, indexInGrid = 0){
     // weiter — trotzdem keepalive nutzen (wireImageDropZone-Prinzip: einheitlich
     // und robust, unabhaengig davon ob der Browser den Tab-Wechsel synchron macht).
     buyLink.addEventListener("click", ()=> trackEvent("product_buy_click", CREATOR_ROW.slug, p.id));
+  }
+
+  if(!isEager){
+    const lazyImg = card.querySelector(".p-img-lazy");
+    if(lazyImg) lazyImageObserver.observe(lazyImg);
   }
 
   return card;
