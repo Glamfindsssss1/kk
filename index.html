@@ -5626,13 +5626,14 @@ async function renderRevenue(){
     if(revenueCreatorId !== "all" && o.creator?.id !== revenueCreatorId) return false;
     return true;
   });
-  // Stornierte/erstattete Bestellungen bleiben in der Liste unten sichtbar
-  // (mit "Storniert"-Badge), zaehlen aber nicht in Umsatz/Bestellzahl/Chart —
-  // sonst liegt die angezeigte Summe systematisch ueber dem, was Weidian
-  // selbst als tatsaechlichen Umsatz ausweist (bestaetigt anhand eines
-  // echten Abgleichs: 145 stornierte Bestellungen machten hier ca. 30.000 ¥
-  // Differenz aus).
-  const revenueOrders = filteredOrders.filter(o => o.status !== "cancelled");
+  // Nur tatsaechlich BEZAHLTE Bestellungen zaehlen als Umsatz (status "paid"
+  // oder "shipped") — weder stornierte NOCH noch unbezahlte ("pending")
+  // Bestellungen. Weidians eigene Kennzahlen "支付金额"/"支付订单数" (bezahlter
+  // Betrag/bezahlte Bestellzahl) meinen genau das; ein echter Abgleich zeigte
+  // sonst 21 Bestellungen/¥3.792 bei uns gegen 12/¥2.375,36 bei Weidian, weil
+  // offene, noch unbezahlte Bestellungen mitgezaehlt wurden. Alle Bestellungen
+  // bleiben trotzdem in der Liste unten sichtbar (inkl. Status-Badge).
+  const revenueOrders = filteredOrders.filter(o => o.status === "paid" || o.status === "shipped");
 
   const demo = {
     revenue: revenueOrders.reduce((s,o)=> s+o.price, 0),
