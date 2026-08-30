@@ -1458,9 +1458,30 @@
     .product-grid-scroll{grid-template-columns:repeat(6,calc((100% - 5*16px) / 6));
       grid-auto-columns:calc((100% - 5*16px) / 6);}
   }
+
+  /* ---------- Style-Hintergrund (Vibe-Bild je Style) ---------- */
+  /* Fest hinter der ganzen Seite (nicht nur dem Grid), damit man beim Scrollen
+     durchgehend im "Vibe" bleibt. Startet unsichtbar (opacity 0) und blendet
+     weich ein/aus, statt hart zu wechseln, wenn ein Style an/abgewaehlt wird. */
+  .style-bg{position:fixed;inset:-40px;z-index:-1;opacity:0;pointer-events:none;
+    background-size:cover;background-position:center;
+    filter:blur(26px) saturate(1.15);transform:scale(1.1);
+    transition:opacity .4s ease;}
+  .style-bg.active{opacity:1;}
+  @media (prefers-reduced-motion: reduce){ .style-bg{transition:none;} }
+
+  /* Karten/Icons "milchig" (angehaucht durchscheinend) statt komplett deckend,
+     damit das Hintergrundbild durch sie hindurchschimmert. Nur aktiv, wenn
+     wirklich ein Style-Hintergrund laeuft -- sonst blieben Karten grundlos
+     halbtransparent auf normalem hellen Grund. */
+  body.style-bg-on .p-card{background:rgba(255,255,255,.62);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);}
+  body.style-bg-on .cat-circle,
+  body.style-bg-on .subcat-pill{background:rgba(255,255,255,.55);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);}
 </style>
 </head>
 <body>
+
+<div class="style-bg" id="styleBg" aria-hidden="true"></div>
 
 <div class="topbar-fixed" id="topbarFixed">
   <header class="topbar">
@@ -1992,6 +2013,10 @@ const CATEGORIES = [
 let PRODUCTS = [];   // wird aus Supabase geladen
 
 const STYLES = ["ALL","🇫🇷/🇳🇱STYLE","GRISH🍾","OLDMONEY💸","ARCHIVE🕸️","STREETWEAR🫧"];
+
+// Hintergrundbild je Style (Style-Label -> URL), siehe updateStyleBackground().
+// Nur Styles mit eigenem Bild tauchen hier auf; "ALL" hat nie eins.
+let STYLE_BG = {};
 
 // Unterkategorien pro Hauptkategorie, z.B. bottoms -> ["Sweatpants","Shorts","Denim","Cargos"].
 // Kommt komplett aus Supabase (siehe loadData unten), startet leer.
@@ -2783,11 +2808,28 @@ function renderProducts(){
   }
 }
 
+// Blendet das "Vibe"-Hintergrundbild des gerade gewaehlten Styles ein (falls
+// eins hinterlegt ist), sonst wieder aus. Wird bei jedem update() aufgerufen,
+// damit der Hintergrund immer zum aktuell gewaehlten Style passt.
+function updateStyleBackground(){
+  const url = activeStyle !== "ALL" ? STYLE_BG[activeStyle] : null;
+  const bgEl = document.getElementById("styleBg");
+  if(url){
+    bgEl.style.backgroundImage = `url("${url}")`;
+    bgEl.classList.add("active");
+    document.body.classList.add("style-bg-on");
+  } else {
+    bgEl.classList.remove("active");
+    document.body.classList.remove("style-bg-on");
+  }
+}
+
 function update(){
   const isHome = !viewAll && !wishOnly && activeCat === "all" && activeStyle === "ALL";
   const singleSectionWrap = document.getElementById("singleSectionWrap");
   collectionsRoot.hidden = !isHome;
   singleSectionWrap.hidden = isHome;
+  updateStyleBackground();
   if(isHome){ renderCollections(); }
   else { renderSectionHead(); renderProducts(); }
 }
@@ -7851,6 +7893,12 @@ async function loadData(){
     STYLES.length = 0;
     STYLES.push("ALL", ...sty.map(s => s.label));
   }
+
+  // Hintergrundbild pro Style (siehe updateStyleBackground) -- neu aufgebaut,
+  // damit ein Style ohne Bild beim Creator-Wechsel nicht das Bild eines
+  // vorherigen Creators behaelt.
+  STYLE_BG = {};
+  (sty || []).forEach(s => { if(s.bg_image_url) STYLE_BG[s.label] = s.bg_image_url; });
 
   SUBCATEGORIES = subcats ?? [];
 
