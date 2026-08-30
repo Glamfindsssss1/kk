@@ -7725,10 +7725,19 @@ async function loadData(){
   // Laeuft ueber gezielte DB-Funktionen statt einer offenen Tabellenabfrage --
   // so kann niemand ohne bekannten Slug die komplette Creator-Liste auslesen
   // (siehe Migration lock_down_creators_public_read).
-  const { data: rows, error } = SLUG
+  let { data: rows, error } = SLUG
     ? await sb.rpc("get_creator_by_slug", { p_slug: SLUG })
     : await sb.rpc("get_default_creator");
   if(error){ console.warn(error); return; }
+
+  // Unbekannter/falscher Link (z.B. Tippfehler, alter Bookmark) soll NIE eine
+  // leere Seite zeigen -- Cocofinds ist die einzige Hauptseite, also faellt
+  // jeder nicht existierende Slug auf den Standard-Creator zurueck, statt
+  // einfach nichts anzuzeigen.
+  if((!rows || !rows[0]) && SLUG){
+    ({ data: rows, error } = await sb.rpc("get_default_creator"));
+    if(error){ console.warn(error); return; }
+  }
 
   CREATOR_ROW = rows && rows[0];
   if(!CREATOR_ROW) return;
@@ -8001,12 +8010,11 @@ async function boot(){
       // sonst wuerde jeder fehlerhafte/leere Aufruf faelschlich mitgezaehlt.
       if(CREATOR_ROW) trackEvent("page_view", CREATOR_ROW.slug);
     }
-    // Temporaerer Status-Hinweis (siehe #bootErrorBanner-Kommentar oben): zeigt
-    // sofort, an welcher Stelle es hakt, ohne Entwicklertools zu brauchen.
+    // Sollte trotz des Fallbacks in loadData() (unbekannter Slug -> Standard-
+    // Creator) immer noch kein Creator geladen sein (z.B. echter Netzwerk-/
+    // Datenbankfehler), ist das ein echtes Problem und wird sichtbar gemeldet.
     if(!CREATOR_ROW){
       showBootError("boot(): CREATOR_ROW ist leer nach loadData(). SLUG=" + JSON.stringify(SLUG));
-    } else if(!PRODUCTS || !PRODUCTS.length){
-      showBootError("boot(): CREATOR_ROW=" + CREATOR_ROW.slug + ", aber PRODUCTS ist leer (" + (PRODUCTS ? PRODUCTS.length : "undefined") + " Eintraege). CREATOR.name=" + JSON.stringify(CREATOR.name) + ", CREATOR.handle=" + JSON.stringify(CREATOR.handle));
     }
   } catch(e) {
     // Egal was in applyCreator/applyLang/applyView/wireSignupPopup schiefgeht:
