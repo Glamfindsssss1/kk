@@ -2652,6 +2652,37 @@ const RENDER_CHUNK_SIZE = 30;
 // ohne "Mehr laden"-Klick. Wird bei jedem renderProducts()-Aufruf neu aufgesetzt.
 let productGridLoadObserver = null;
 
+// Ist kein bestimmter Style ausgewaehlt ("Alle Styles"), werden Produkte nicht
+// einfach nach sort_order gezeigt (das wuerde den zuerst angelegten Style
+// bevorzugen), sondern gestaffelt: immer 9 Produkte vom ersten Style (Reihen-
+// folge wie in der Style-Leiste), danach 9 vom naechsten, usw. im Kreis, bis
+// alle Produkte einsortiert sind. Produkte ganz ohne Style-Tag bilden dabei
+// einen eigenen, letzten "Style"-Block.
+const STAGGER_CHUNK_SIZE = 9;
+function staggerByStyle(items){
+  const styleOrder = STYLES.slice(1); // STYLES[0] ist immer "ALL", zaehlt nicht als eigener Style
+  const buckets = styleOrder.map(s => items.filter(p => p.style === s));
+  const noStyle = items.filter(p => !styleOrder.includes(p.style));
+  if(noStyle.length) buckets.push(noStyle);
+
+  const result = [];
+  const cursors = buckets.map(()=>0);
+  let remaining = items.length;
+  while(remaining > 0){
+    let tookAnyThisRound = false;
+    buckets.forEach((bucket, i)=>{
+      if(cursors[i] >= bucket.length) return;
+      const chunk = bucket.slice(cursors[i], cursors[i] + STAGGER_CHUNK_SIZE);
+      result.push(...chunk);
+      cursors[i] += chunk.length;
+      remaining -= chunk.length;
+      tookAnyThisRound = true;
+    });
+    if(!tookAnyThisRound) break; // Sicherheitsnetz, sollte hier eigentlich nie greifen
+  }
+  return result;
+}
+
 function renderProducts(){
   const all = filtered();
   // Nur ohne aktive Kategorie/Style-Filterung wird auf previewCount begrenzt —
@@ -2659,7 +2690,8 @@ function renderProducts(){
   // zu "alle Tops", was bei aktivem Filter keinen Sinn ergibt. Filtert man also,
   // sieht man sofort alles Passende, ohne Zwischenschritt.
   const noFilterActive = activeCat === "all" && activeStyle === "ALL";
-  const items = (viewAll || wishOnly || !noFilterActive) ? all : all.slice(0, CREATOR.previewCount);
+  let items = (viewAll || wishOnly || !noFilterActive) ? all : all.slice(0, CREATOR.previewCount);
+  if(activeStyle === "ALL") items = staggerByStyle(items);
   productGrid.innerHTML = "";
 
   if(productGridLoadObserver){
