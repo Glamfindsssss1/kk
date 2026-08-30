@@ -1460,13 +1460,21 @@
   }
 
   /* ---------- Style-Hintergrund (Vibe-Bild je Style) ---------- */
-  /* Fest hinter der ganzen Seite (nicht nur dem Grid), damit man beim Scrollen
-     durchgehend im "Vibe" bleibt. Startet unsichtbar (opacity 0) und blendet
-     weich ein/aus, statt hart zu wechseln, wenn ein Style an/abgewaehlt wird. */
-  .style-bg{position:fixed;inset:-40px;z-index:-1;opacity:0;pointer-events:none;
+  /* Positioniert relativ zu .page (nicht fixed) -- scrollt also ganz normal
+     mit dem Inhalt statt am Viewport zu kleben. "top" wird per JS auf die
+     Position von #singleSectionWrap gesetzt (siehe updateStyleBackground),
+     damit der Hintergrund exakt unterhalb von Hero/Style-Tabs/Kategorie-Zeile
+     beginnt. Die Maske blendet das obere Ende zusaetzlich weich aus, statt
+     mit einer harten Kante zu beginnen -- fuer einen luecken-/nahtlosen
+     Uebergang. Startet unsichtbar (opacity 0) und blendet weich ein/aus,
+     statt hart zu wechseln, wenn ein Style an/abgewaehlt wird. */
+  .style-bg{position:absolute;left:-40px;right:-40px;top:0;bottom:-40px;z-index:-1;
+    opacity:0;pointer-events:none;
     background-size:cover;background-position:center;
     filter:blur(26px) saturate(1.15);transform:scale(1.1);
-    transition:opacity .4s ease;}
+    transition:opacity .4s ease;
+    -webkit-mask-image:linear-gradient(to bottom, transparent 0, transparent 40px, #000 180px);
+    mask-image:linear-gradient(to bottom, transparent 0, transparent 40px, #000 180px);}
   .style-bg.active{opacity:1;}
   @media (prefers-reduced-motion: reduce){ .style-bg{transition:none;} }
 
@@ -1480,8 +1488,6 @@
 </style>
 </head>
 <body>
-
-<div class="style-bg" id="styleBg" aria-hidden="true"></div>
 
 <div class="topbar-fixed" id="topbarFixed">
   <header class="topbar">
@@ -1518,6 +1524,12 @@
 </div>
 
 <div class="page">
+  <!-- position:absolute relativ zu .page (siehe updateStyleBackground): "top"
+       wird per JS auf die Position von #singleSectionWrap gesetzt, damit der
+       Style-Hintergrund erst unterhalb der Kategorie-Zeile beginnt, statt
+       ueber Hero/Style-Tabs/Kategorien zu liegen. -->
+  <div class="style-bg" id="styleBg" aria-hidden="true"></div>
+
   <div class="bg-clip">
     <div class="bg-blur bg-fallback" id="bgBlur"></div>
     <div class="bg-overlay"></div>
@@ -2815,6 +2827,11 @@ function updateStyleBackground(){
   const url = activeStyle !== "ALL" ? STYLE_BG[activeStyle] : null;
   const bgEl = document.getElementById("styleBg");
   if(url){
+    // offsetTop von #singleSectionWrap ist relativ zu .page (dem naechsten
+    // positionierten Vorfahren, siehe CSS) -- exakt dieselbe Bezugsbasis wie
+    // #styleBg selbst, daher reicht dieser Wert direkt als "top".
+    const wrap = document.getElementById("singleSectionWrap");
+    bgEl.style.top = Math.max(0, wrap.offsetTop - 40) + "px";
     bgEl.style.backgroundImage = `url("${url}")`;
     bgEl.classList.add("active");
     document.body.classList.add("style-bg-on");
@@ -2823,6 +2840,10 @@ function updateStyleBackground(){
     document.body.classList.remove("style-bg-on");
   }
 }
+// Hero-Hoehe (und damit die Startposition des Style-Hintergrunds) kann sich
+// z.B. bei Fensterbreiten-Aenderung verschieben -- neu ausrichten, solange
+// gerade ein Style-Hintergrund sichtbar ist.
+window.addEventListener("resize", ()=>{ if(document.body.classList.contains("style-bg-on")) updateStyleBackground(); });
 
 function update(){
   const isHome = !viewAll && !wishOnly && activeCat === "all" && activeStyle === "ALL";
