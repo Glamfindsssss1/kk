@@ -414,6 +414,10 @@
     overflow:hidden;}
   .promo-bar-icon svg{width:20px;height:20px;}
   .promo-bar-icon img{width:100%;height:100%;object-fit:cover;}
+  /* Weisser Grund fuer das YouTube-Logo statt der Creator-Akzentfarbe --
+     passend zum roten/weissen Logo, wie beim Tutorial-Button im Hero. */
+  body.promo-bar-is-tutorial .promo-bar-icon{background:#fff;border:1px solid var(--border);}
+  body.promo-bar-is-tutorial .promo-bar-icon svg{width:26px;height:19px;}
   .promo-bar-text{flex:1 1 auto;min-width:0;}
   .promo-bar-name{font-size:13px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .promo-bar-sub{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -421,6 +425,9 @@
     color:#fff;font-weight:800;font-size:13px;border-radius:999px;padding:9px 14px;text-decoration:none;
     white-space:nowrap;transition:filter .15s ease;}
   .promo-bar-cta:hover{filter:brightness(.94);}
+  /* Tutorial-Variante: Button-Farbe ist immer rot, unabhaengig von der
+     individuellen Theme-/Promo-Farbe des Creators. */
+  body.promo-bar-is-tutorial .promo-bar-cta{background:#e11d48;}
   .promo-bar-cta svg{width:15px;height:15px;flex:0 0 auto;}
   .promo-bar-close{flex:0 0 auto;width:30px;height:30px;border-radius:999px;border:none;background:transparent;
     color:var(--muted);display:flex;align-items:center;justify-content:center;cursor:pointer;}
@@ -7757,6 +7764,9 @@ async function loadData(){
 
   const howtoUrl   = CREATOR_ROW.howto_url   || settingsRow?.howto_url   || "";
   const howtoLabel = CREATOR_ROW.howto_label || settingsRow?.howto_label || "(TUTORIAL) HOW TO BUY FROM 🇨🇳";
+  // Auf CREATOR gemerkt, damit die Tutorial-Promo-Leiste (siehe wireSignupPopup)
+  // denselben Link verwenden kann, ohne loadData() erneut abzufragen.
+  CREATOR.howtoUrl = howtoUrl;
 
   const howtoBtn = document.getElementById("howtoBtn");
   if(howtoBtn){
@@ -7936,6 +7946,30 @@ function wireSignupPopup(){
     ctaTextEl.textContent = pct ? `${pct[1]}% Coupon` : "Coupon sichern";
   }
 
+  const YT_ICON_SVG = `<svg viewBox="0 0 28 20" aria-hidden="true" focusable="false">
+    <path fill="#FF0000" d="M27.4 3.1A3.5 3.5 0 0 0 24.9.6C22.7 0 14 0 14 0S5.3 0 3.1.6A3.5 3.5 0 0 0 .6 3.1C0 5.3 0 10 0 10s0 4.7.6 6.9a3.5 3.5 0 0 0 2.5 2.5C5.3 20 14 20 14 20s8.7 0 10.9-.6a3.5 3.5 0 0 0 2.5-2.5C28 14.7 28 10 28 10s0-4.7-.6-6.9z"/>
+    <path fill="#fff" d="M11.2 14.3 18.5 10l-7.3-4.3z"/>
+  </svg>`;
+
+  // Zweite Promo-Leiste, die dieselbe Leiste (nur mit anderem Inhalt) fuer den
+  // YouTube-Tutorial-Link wirbt -- erscheint 10s nachdem die Affiliate-Leiste
+  // geschlossen wurde (siehe scheduleTutorialPromoBar unten). Nutzt denselben
+  // Link wie der Tutorial-Button im Hero-Bereich (CREATOR.howtoUrl).
+  function fillTutorialPromoBar(){
+    const iconEl = document.getElementById("promoBarIcon");
+    const nameEl = document.getElementById("promoBarName");
+    const subEl  = document.getElementById("promoBarSub");
+    const ctaEl  = document.getElementById("promoBarCta");
+    const ctaTextEl = document.getElementById("promoBarCtaText");
+
+    iconEl.innerHTML = YT_ICON_SVG;
+    const providerName = (creatorAffiliate && AFFILIATE_AGENTS[creatorAffiliate.agentId]?.displayName) || "HipoBuy";
+    nameEl.textContent = `HOW TO BUY FROM ${providerName} 🎉`;
+    subEl.textContent = "Learn how to order safely from China";
+    ctaEl.href = CREATOR.howtoUrl || "#";
+    ctaTextEl.textContent = "TUTORIAL";
+  }
+
   function openPromoBar(){
     if(document.body.classList.contains("promo-bar-open")) return; // schon offen
     if(document.body.classList.contains("admin-open")) return;
@@ -7943,8 +7977,28 @@ function wireSignupPopup(){
     document.body.classList.add("promo-bar-open");
   }
 
+  function openTutorialPromoBar(){
+    if(document.body.classList.contains("promo-bar-open")) return; // schon offen
+    if(document.body.classList.contains("admin-open")) return;
+    if(!CREATOR.howtoUrl) return; // kein Tutorial-Link fuer diesen Creator hinterlegt
+    fillTutorialPromoBar();
+    document.body.classList.add("promo-bar-open", "promo-bar-is-tutorial");
+  }
+
+  // Nur einmal pro Seitenaufruf ausloesen, nicht nach jedem Schliessen erneut.
+  let tutorialPromoScheduled = false;
+  function scheduleTutorialPromoBar(){
+    if(tutorialPromoScheduled) return;
+    tutorialPromoScheduled = true;
+    setTimeout(openTutorialPromoBar, 10000);
+  }
+
   function closePromoBar(){
-    document.body.classList.remove("promo-bar-open");
+    // War gerade die Affiliate-Leiste offen (nicht die Tutorial-Leiste selbst),
+    // startet das Schliessen den 10s-Countdown fuer die Tutorial-Leiste.
+    const wasTutorial = document.body.classList.contains("promo-bar-is-tutorial");
+    document.body.classList.remove("promo-bar-open", "promo-bar-is-tutorial");
+    if(!wasTutorial) scheduleTutorialPromoBar();
   }
 
   document.getElementById("promoBarClose").addEventListener("click", closePromoBar);
