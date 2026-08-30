@@ -1959,15 +1959,18 @@ function slugFromPath(){
 let SLUG = slugFromPath() || new URLSearchParams(location.search).get("creator");
 let CREATOR_ROW = null;
 
-// Bewusst OHNE Marken-Namen als Platzhalter: bis applyCreator() die echten
-// Supabase-Daten eingesetzt hat, bleibt der Hero-Bereich per .creator-loading
-// unsichtbar (siehe oben) -- taucht dieses Objekt trotzdem mal sichtbar auf
-// (z.B. weil das Laden fehlschlug), soll dort keine fremde Platzhalter-Marke
-// wie zuvor "Sashimi Closet" zu sehen sein, sondern einfach nichts.
+// Bewusst OHNE Marken-Namen als Platzhalter (name/handle): bis applyCreator()
+// die echten Supabase-Daten eingesetzt hat, bleibt der Hero-Bereich per
+// .creator-loading unsichtbar (siehe oben) -- taucht dieses Objekt trotzdem
+// mal sichtbar auf (z.B. weil das Laden fehlschlug), soll dort keine fremde
+// Platzhalter-Marke wie zuvor "Sashimi" zu sehen sein, sondern einfach nichts.
+// nameSub ("Closet") ist dagegen bewusst FEST für jeden Creator gleich --
+// kommt aus keiner Datenbank-Spalte, sondern haengt hier immer als fester
+// Zusatz hinter dem jeweiligen echten Creator-Namen (z.B. "Cocofinds Closet").
 const CREATOR = {
   name: "",
   handle: "",
-  nameSub: "",
+  nameSub: "Closet",
   avatarUrl: "",            // z.B. "https://.../avatar.jpg" — bei leer wird Farbverlauf + Initiale gezeigt
   avatarInitial: "",
   bgImageUrl: "",           // z.B. gleiche URL wie avatarUrl, wird geblurt als Hintergrund genutzt
