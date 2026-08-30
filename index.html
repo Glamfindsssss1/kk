@@ -1454,6 +1454,14 @@
 </head>
 <body>
 
+<!-- Temporaeres Diagnose-Banner: zeigt Lade-/Skriptfehler direkt sichtbar auf
+     der Seite an (statt nur in der Browser-Konsole), damit man den Fehler
+     auch per Screenshot mitteilen kann, ohne Entwicklertools zu oeffnen.
+     Sobald der Bug gefunden ist, kann dieses Banner wieder entfernt werden. -->
+<div id="bootErrorBanner" hidden style="position:fixed;top:0;left:0;right:0;z-index:99999;
+  background:#c0152f;color:#fff;font:600 12px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;
+  padding:10px 14px;max-height:45vh;overflow:auto;white-space:pre-wrap;"></div>
+
 <div class="topbar-fixed" id="topbarFixed">
   <header class="topbar">
     <div class="breadcrumb">
@@ -1687,6 +1695,19 @@
 // lief (siehe boot() ganz unten) — verhindert den kurzen Blitz der leeren
 // Platzhalterwerte aus dem CREATOR-Objekt weiter unten in diesem Script.
 document.body.classList.add("creator-loading");
+
+// ---------- Temporaeres Diagnose-Banner (siehe Kommentar bei #bootErrorBanner) ----------
+function showBootError(msg){
+  const el = document.getElementById("bootErrorBanner");
+  if(!el) return;
+  el.hidden = false;
+  el.textContent += (el.textContent ? "\n" : "") + msg;
+}
+// Faengt auch Fehler ab, die AUSSERHALB von boot()'s eigenem try/catch passieren
+// (z.B. beim initialen Skript-Parsen) -- sonst bliebe die Seite dann stumm leer,
+// ohne dass irgendwo ein Hinweis zu sehen waere.
+window.addEventListener("error", e => showBootError("window.onerror: " + e.message + " (" + (e.filename||"").split("/").pop() + ":" + e.lineno + ")"));
+window.addEventListener("unhandledrejection", e => showBootError("unhandledrejection: " + (e.reason && e.reason.message ? e.reason.message : e.reason)));
 
 // ---------- Sprachen ----------
 // Produktnamen und die beiden Promo-Zeilen bleiben absichtlich draussen:
@@ -7966,7 +7987,10 @@ const bootSafetyNet = setTimeout(()=>{
 let hasBootedOnce = false;
 async function boot(){
   try {
-    try { await loadData(); } catch(e){ console.error("boot(): loadData() fehlgeschlagen:", e); }
+    try { await loadData(); } catch(e){
+      console.error("boot(): loadData() fehlgeschlagen:", e);
+      showBootError("loadData() fehlgeschlagen: " + (e && e.message ? e.message : e));
+    }
     applyCreator();
     applyLang();        // setzt Sprache, baut Tabs, Kategorien und Raster
     applyView(false);
@@ -7977,10 +8001,18 @@ async function boot(){
       // sonst wuerde jeder fehlerhafte/leere Aufruf faelschlich mitgezaehlt.
       if(CREATOR_ROW) trackEvent("page_view", CREATOR_ROW.slug);
     }
+    // Temporaerer Status-Hinweis (siehe #bootErrorBanner-Kommentar oben): zeigt
+    // sofort, an welcher Stelle es hakt, ohne Entwicklertools zu brauchen.
+    if(!CREATOR_ROW){
+      showBootError("boot(): CREATOR_ROW ist leer nach loadData(). SLUG=" + JSON.stringify(SLUG));
+    } else if(!PRODUCTS || !PRODUCTS.length){
+      showBootError("boot(): CREATOR_ROW=" + CREATOR_ROW.slug + ", aber PRODUCTS ist leer (" + (PRODUCTS ? PRODUCTS.length : "undefined") + " Eintraege). CREATOR.name=" + JSON.stringify(CREATOR.name) + ", CREATOR.handle=" + JSON.stringify(CREATOR.handle));
+    }
   } catch(e) {
     // Egal was in applyCreator/applyLang/applyView/wireSignupPopup schiefgeht:
     // der Fehler landet sichtbar in der Konsole statt die Seite stumm leer zu lassen.
     console.error("boot(): unerwarteter Fehler beim Start:", e);
+    showBootError("boot() unerwarteter Fehler: " + (e && e.message ? e.message : e) + (e && e.stack ? "\n" + e.stack.split("\n").slice(0,3).join("\n") : ""));
   } finally {
     // Egal ob alles glattlief oder ein Fehler auftrat: applyCreator() lief in
     // jedem Fall mit dem bestmoeglichen Stand (echte Daten oder zumindest
