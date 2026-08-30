@@ -1373,6 +1373,11 @@
     cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:12px;}
   .a-chip-x:hover{background:#fdecec;color:var(--err);}
   .a-chip-x:focus-visible{outline:2px solid rgba(59,102,245,.5);outline-offset:1px;}
+  .a-chip-bgimg{width:26px;height:26px;border:none;border-radius:999px;background:none;color:var(--muted);
+    cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:13px;opacity:.55;}
+  .a-chip-bgimg.has-img{opacity:1;color:var(--accent);}
+  .a-chip-bgimg:hover{background:#f0f3ff;color:var(--accent);opacity:1;}
+  .a-chip-bgimg:focus-visible{outline:2px solid rgba(59,102,245,.5);outline-offset:1px;}
   .a-chip-lock{font-size:11px;color:var(--muted);padding-right:4px;}
   .a-chip.is-draggable{cursor:grab;touch-action:none;user-select:none;transition:box-shadow .12s ease,transform .12s ease;}
   .a-chip.is-draggable:active{cursor:grabbing;}
@@ -4643,9 +4648,14 @@ function renderDashboard(){
         <div class="a-chips" id="styleChips">
           ${state.styles.map(s => `
             <span class="a-chip is-draggable" data-id="${aesc(s.id)}">${aesc(s.label)}
+              <button class="a-chip-bgimg ${s.bg_image_url ? "has-img" : ""}" data-bgstyle="${aesc(s.id)}"
+                      aria-label="Hintergrundbild für ${aesc(s.label)} ${s.bg_image_url ? "\u00e4ndern" : "hinzufügen"}"
+                      title="Hintergrundbild (Vibe-Bild)">\u{1F5BC}\ufe0f</button>
               <button class="a-chip-x" data-delstyle="${aesc(s.id)}" aria-label="${aesc(s.label)} löschen">\u2715</button>
             </span>`).join("")}
         </div>
+        <input type="file" id="styleBgFileInput" accept="image/*" hidden>
+        <p class="a-hint" style="margin:-4px 0 10px">Mit dem Bild-Symbol ein Hintergrundbild ("Vibe") für einen Style hochladen — erscheint im Storefront, sobald dieser Style ausgewählt wird.</p>
         <form id="styleForm" class="a-grid">
           <div class="a-full"><label class="a-label" for="style-label">Bezeichnung *</label>
             <input id="style-label" class="a-field" required placeholder="Y2K✨">
@@ -7497,6 +7507,34 @@ function wireDashboard(){
     atoast("Style gelöscht.");
     refresh();
   });
+
+  // Hintergrundbild ("Vibe") je Style hochladen: ein gemeinsames, verstecktes
+  // Datei-Feld fuer alle Chips -- welcher Style gerade dran ist, merkt sich
+  // pendingStyleBgId zwischen Klick und Dateiauswahl.
+  let pendingStyleBgId = null;
+  document.querySelectorAll("[data-bgstyle]").forEach(btn => btn.onclick = ()=>{
+    pendingStyleBgId = btn.dataset.bgstyle;
+    document.getElementById("styleBgFileInput").click();
+  });
+  const styleBgFileInput = document.getElementById("styleBgFileInput");
+  if(styleBgFileInput) styleBgFileInput.onchange = async (e)=>{
+    const f = e.target.files?.[0];
+    const styleId = pendingStyleBgId;
+    styleBgFileInput.value = ""; // erlaubt erneutes Auswaehlen derselben Datei
+    if(!f || !styleId) return;
+
+    const compressed = await compressImageForUpload(f);
+    const ext = (compressed.name.split(".").pop() || "jpg").toLowerCase();
+    const path = `style-bg/${crypto.randomUUID()}.${ext}`;
+    const { error: upErr } = await sb.storage.from("products").upload(path, compressed, { cacheControl:"31536000" });
+    if(upErr) return atoast("Upload: " + upErr.message, "err");
+    const url = sb.storage.from("products").getPublicUrl(path).data.publicUrl;
+
+    const { error } = await sb.from("styles").update({ bg_image_url: url }).eq("id", styleId);
+    if(error) return atoast(error.message, "err");
+    atoast("Hintergrundbild gespeichert.");
+    refresh();
+  };
 
   // ---- Unterkategorien ----
   const subcatParentEl = document.getElementById("subcat-parent");
