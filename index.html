@@ -1373,11 +1373,6 @@
     cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:12px;}
   .a-chip-x:hover{background:#fdecec;color:var(--err);}
   .a-chip-x:focus-visible{outline:2px solid rgba(59,102,245,.5);outline-offset:1px;}
-  .a-chip-bgimg{width:26px;height:26px;border:none;border-radius:999px;background:none;color:var(--muted);
-    cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:13px;opacity:.55;}
-  .a-chip-bgimg.has-img{opacity:1;color:var(--accent);}
-  .a-chip-bgimg:hover{background:#f0f3ff;color:var(--accent);opacity:1;}
-  .a-chip-bgimg:focus-visible{outline:2px solid rgba(59,102,245,.5);outline-offset:1px;}
   .a-chip-lock{font-size:11px;color:var(--muted);padding-right:4px;}
   .a-chip.is-draggable{cursor:grab;touch-action:none;user-select:none;transition:box-shadow .12s ease,transform .12s ease;}
   .a-chip.is-draggable:active{cursor:grabbing;}
@@ -1463,33 +1458,6 @@
     .product-grid-scroll{grid-template-columns:repeat(6,calc((100% - 5*16px) / 6));
       grid-auto-columns:calc((100% - 5*16px) / 6);}
   }
-
-  /* ---------- Style-Hintergrund (Vibe-Bild je Style) ---------- */
-  /* Positioniert relativ zu .page (nicht fixed) -- scrollt also ganz normal
-     mit dem Inhalt statt am Viewport zu kleben. "top" wird per JS auf die
-     Position von #singleSectionWrap gesetzt (siehe updateStyleBackground),
-     damit der Hintergrund exakt unterhalb von Hero/Style-Tabs/Kategorie-Zeile
-     beginnt. Die Maske blendet das obere Ende zusaetzlich weich aus, statt
-     mit einer harten Kante zu beginnen -- fuer einen luecken-/nahtlosen
-     Uebergang. Startet unsichtbar (opacity 0) und blendet weich ein/aus,
-     statt hart zu wechseln, wenn ein Style an/abgewaehlt wird. */
-  .style-bg{position:absolute;left:-40px;right:-40px;top:0;bottom:-40px;z-index:-1;
-    opacity:0;pointer-events:none;
-    background-size:cover;background-position:center;
-    filter:blur(26px) saturate(1.15);transform:scale(1.1);
-    transition:opacity .4s ease;
-    -webkit-mask-image:linear-gradient(to bottom, transparent 0, transparent 40px, #fff 180px);
-    mask-image:linear-gradient(to bottom, transparent 0, transparent 40px, #fff 180px);}
-  .style-bg.active{opacity:1;}
-  @media (prefers-reduced-motion: reduce){ .style-bg{transition:none;} }
-
-  /* Karten/Icons "milchig" (angehaucht durchscheinend) statt komplett deckend,
-     damit das Hintergrundbild durch sie hindurchschimmert. Nur aktiv, wenn
-     wirklich ein Style-Hintergrund laeuft -- sonst blieben Karten grundlos
-     halbtransparent auf normalem hellen Grund. */
-  body.style-bg-on .p-card{background:rgba(255,255,255,.62);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);}
-  body.style-bg-on .cat-circle,
-  body.style-bg-on .subcat-pill{background:rgba(255,255,255,.55);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);}
 </style>
 </head>
 <body>
@@ -1529,12 +1497,6 @@
 </div>
 
 <div class="page">
-  <!-- position:absolute relativ zu .page (siehe updateStyleBackground): "top"
-       wird per JS auf die Position von #singleSectionWrap gesetzt, damit der
-       Style-Hintergrund erst unterhalb der Kategorie-Zeile beginnt, statt
-       ueber Hero/Style-Tabs/Kategorien zu liegen. -->
-  <div class="style-bg" id="styleBg" aria-hidden="true"></div>
-
   <div class="bg-clip">
     <div class="bg-blur bg-fallback" id="bgBlur"></div>
     <div class="bg-overlay"></div>
@@ -2030,10 +1992,6 @@ const CATEGORIES = [
 let PRODUCTS = [];   // wird aus Supabase geladen
 
 const STYLES = ["ALL","🇫🇷/🇳🇱STYLE","GRISH🍾","OLDMONEY💸","ARCHIVE🕸️","STREETWEAR🫧"];
-
-// Hintergrundbild je Style (Style-Label -> URL), siehe updateStyleBackground().
-// Nur Styles mit eigenem Bild tauchen hier auf; "ALL" hat nie eins.
-let STYLE_BG = {};
 
 // Unterkategorien pro Hauptkategorie, z.B. bottoms -> ["Sweatpants","Shorts","Denim","Cargos"].
 // Kommt komplett aus Supabase (siehe loadData unten), startet leer.
@@ -2825,37 +2783,11 @@ function renderProducts(){
   }
 }
 
-// Blendet das "Vibe"-Hintergrundbild des gerade gewaehlten Styles ein (falls
-// eins hinterlegt ist), sonst wieder aus. Wird bei jedem update() aufgerufen,
-// damit der Hintergrund immer zum aktuell gewaehlten Style passt.
-function updateStyleBackground(){
-  const url = activeStyle !== "ALL" ? STYLE_BG[activeStyle] : null;
-  const bgEl = document.getElementById("styleBg");
-  if(url){
-    // offsetTop von #singleSectionWrap ist relativ zu .page (dem naechsten
-    // positionierten Vorfahren, siehe CSS) -- exakt dieselbe Bezugsbasis wie
-    // #styleBg selbst, daher reicht dieser Wert direkt als "top".
-    const wrap = document.getElementById("singleSectionWrap");
-    bgEl.style.top = Math.max(0, wrap.offsetTop - 40) + "px";
-    bgEl.style.backgroundImage = `url("${url}")`;
-    bgEl.classList.add("active");
-    document.body.classList.add("style-bg-on");
-  } else {
-    bgEl.classList.remove("active");
-    document.body.classList.remove("style-bg-on");
-  }
-}
-// Hero-Hoehe (und damit die Startposition des Style-Hintergrunds) kann sich
-// z.B. bei Fensterbreiten-Aenderung verschieben -- neu ausrichten, solange
-// gerade ein Style-Hintergrund sichtbar ist.
-window.addEventListener("resize", ()=>{ if(document.body.classList.contains("style-bg-on")) updateStyleBackground(); });
-
 function update(){
   const isHome = !viewAll && !wishOnly && activeCat === "all" && activeStyle === "ALL";
   const singleSectionWrap = document.getElementById("singleSectionWrap");
   collectionsRoot.hidden = !isHome;
   singleSectionWrap.hidden = isHome;
-  updateStyleBackground();
   if(isHome){ renderCollections(); }
   else { renderSectionHead(); renderProducts(); }
 }
@@ -4648,14 +4580,9 @@ function renderDashboard(){
         <div class="a-chips" id="styleChips">
           ${state.styles.map(s => `
             <span class="a-chip is-draggable" data-id="${aesc(s.id)}">${aesc(s.label)}
-              <button class="a-chip-bgimg ${s.bg_image_url ? "has-img" : ""}" data-bgstyle="${aesc(s.id)}"
-                      aria-label="Hintergrundbild für ${aesc(s.label)} ${s.bg_image_url ? "\u00e4ndern" : "hinzufügen"}"
-                      title="Hintergrundbild (Vibe-Bild)">\u{1F5BC}\ufe0f</button>
               <button class="a-chip-x" data-delstyle="${aesc(s.id)}" aria-label="${aesc(s.label)} löschen">\u2715</button>
             </span>`).join("")}
         </div>
-        <input type="file" id="styleBgFileInput" accept="image/*" hidden>
-        <p class="a-hint" style="margin:-4px 0 10px">Mit dem Bild-Symbol ein Hintergrundbild ("Vibe") für einen Style hochladen — erscheint im Storefront, sobald dieser Style ausgewählt wird.</p>
         <form id="styleForm" class="a-grid">
           <div class="a-full"><label class="a-label" for="style-label">Bezeichnung *</label>
             <input id="style-label" class="a-field" required placeholder="Y2K✨">
@@ -7508,34 +7435,6 @@ function wireDashboard(){
     refresh();
   });
 
-  // Hintergrundbild ("Vibe") je Style hochladen: ein gemeinsames, verstecktes
-  // Datei-Feld fuer alle Chips -- welcher Style gerade dran ist, merkt sich
-  // pendingStyleBgId zwischen Klick und Dateiauswahl.
-  let pendingStyleBgId = null;
-  document.querySelectorAll("[data-bgstyle]").forEach(btn => btn.onclick = ()=>{
-    pendingStyleBgId = btn.dataset.bgstyle;
-    document.getElementById("styleBgFileInput").click();
-  });
-  const styleBgFileInput = document.getElementById("styleBgFileInput");
-  if(styleBgFileInput) styleBgFileInput.onchange = async (e)=>{
-    const f = e.target.files?.[0];
-    const styleId = pendingStyleBgId;
-    styleBgFileInput.value = ""; // erlaubt erneutes Auswaehlen derselben Datei
-    if(!f || !styleId) return;
-
-    const compressed = await compressImageForUpload(f);
-    const ext = (compressed.name.split(".").pop() || "jpg").toLowerCase();
-    const path = `style-bg/${crypto.randomUUID()}.${ext}`;
-    const { error: upErr } = await sb.storage.from("products").upload(path, compressed, { cacheControl:"31536000" });
-    if(upErr) return atoast("Upload: " + upErr.message, "err");
-    const url = sb.storage.from("products").getPublicUrl(path).data.publicUrl;
-
-    const { error } = await sb.from("styles").update({ bg_image_url: url }).eq("id", styleId);
-    if(error) return atoast(error.message, "err");
-    atoast("Hintergrundbild gespeichert.");
-    refresh();
-  };
-
   // ---- Unterkategorien ----
   const subcatParentEl = document.getElementById("subcat-parent");
   if(subcatParentEl) subcatParentEl.onchange = ()=>{
@@ -7952,12 +7851,6 @@ async function loadData(){
     STYLES.length = 0;
     STYLES.push("ALL", ...sty.map(s => s.label));
   }
-
-  // Hintergrundbild pro Style (siehe updateStyleBackground) -- neu aufgebaut,
-  // damit ein Style ohne Bild beim Creator-Wechsel nicht das Bild eines
-  // vorherigen Creators behaelt.
-  STYLE_BG = {};
-  (sty || []).forEach(s => { if(s.bg_image_url) STYLE_BG[s.label] = s.bg_image_url; });
 
   SUBCATEGORIES = subcats ?? [];
 
