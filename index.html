@@ -6509,6 +6509,17 @@ function wireDragReorder(){
 
   function rowsInList(){ return Array.from(list.querySelectorAll(":scope > .a-row")); }
 
+  // render() baut #adminRoot komplett neu auf (frisches innerHTML) -- das
+  // setzt die Scrollposition sonst ungefragt auf ganz oben zurueck. Beim
+  // Ablegen einer gezogenen Karte weit unten in einer langen Liste wuerde man
+  // dadurch sofort wieder nach oben "katapultiert", obwohl die Karte selbst
+  // korrekt an der Zielposition landet.
+  function renderKeepScroll(){
+    const y = scrollEl ? scrollEl.scrollTop : 0;
+    render();
+    if(scrollEl) scrollEl.scrollTop = y;
+  }
+
   function checkSwap(){
     if(!dragRow) return;
     // Haertet gegen jede Art von schnell wiederholten Aufrufen ab (z.B. viele
@@ -6691,12 +6702,12 @@ function wireDragReorder(){
     const insertAt = visibleNextId ? reordered.findIndex(p => p.id === visibleNextId) : reordered.length;
     reordered.splice(insertAt, 0, { ...draggedProduct, sort_order: gap.value });
     state.products = reordered;
-    render();
+    renderKeepScroll();
 
     const { error } = await sb.from("products").update({ sort_order: gap.value }).eq("id", id);
     if(error) atoast(error.message, "err");
     state.products = await loadProducts(state.activeId);
-    render();
+    renderKeepScroll();
   }
 
   list.addEventListener("pointerdown", onPointerDown);
