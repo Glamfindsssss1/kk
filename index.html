@@ -8304,13 +8304,39 @@ async function loadData(){
 
   SUBCATEGORIES = subcats ?? [];
 
+  // Erste Seite laden statt des gesamten Katalogs auf einmal -- bei sehr
+  // grossen Katalogen (mehrere tausend Produkte) waeren das sonst mehrere MB
+  // reiner JSON-Text, bevor ueberhaupt etwas angezeigt wird. Der Rest wird
+  // direkt danach im Hintergrund nachgeladen (siehe unten) -- passend zum
+  // Prinzip der bereits lazy geladenen Bilder, nur eine Ebene frueher (Daten
+  // statt Bild-Bytes).
   const { data: prods } = await sb.from("products").select("*")
     .eq("creator_id", CREATOR_ROW.id)
     .eq("is_hidden", false)
     .order("sort_order", { ascending:true })
-    .order("created_at", { ascending:false });
+    .order("created_at", { ascending:false })
+    .range(0, PRODUCTS_PAGE_SIZE - 1);
 
-  PRODUCTS = (prods ?? []).map(p => ({
+  PRODUCTS = (prods ?? []).map(mapProductRow);
+
+  initPriceFilter();
+  wirePriceFilter();
+
+  // Nur falls die erste Seite voll war (also potenziell mehr existiert) --
+  // laeuft bewusst OHNE await weiter: soll den ersten Seitenaufbau nicht
+  // verzoegern. Haengt PRODUCTS im Hintergrund an; jede Filterung/Suche/
+  // Staffelung, die danach ausgeloest wird (Kategorie-Klick, Suche, "Alle
+  // ansehen" ...), sieht dann automatisch den vollstaendigen Katalog, ohne
+  // dass hier extra ein Re-Render angestossen werden muss.
+  if((prods ?? []).length === PRODUCTS_PAGE_SIZE){
+    loadRemainingProducts(CREATOR_ROW.id, PRODUCTS_PAGE_SIZE);
+  }
+}
+
+const PRODUCTS_PAGE_SIZE = 300;
+
+function mapProductRow(p){
+  return {
     id:    p.id,
     name:  p.title,
     cat:   p.category || "all",
@@ -8322,10 +8348,26 @@ async function loadData(){
     featured: !!p.is_featured,
     discountLabel: p.discount_label || "",
     discountColor: p.discount_color || "#e11d48"
-  }));
+  };
+}
 
-  initPriceFilter();
-  wirePriceFilter();
+async function loadRemainingProducts(creatorId, fromOffset){
+  let offset = fromOffset;
+  for(;;){
+    const { data, error } = await sb.from("products").select("*")
+      .eq("creator_id", creatorId)
+      .eq("is_hidden", false)
+      .order("sort_order", { ascending:true })
+      .order("created_at", { ascending:false })
+      .range(offset, offset + PRODUCTS_PAGE_SIZE - 1);
+    if(error || !data || !data.length) return;
+    // Falls sich der Creator zwischenzeitlich geaendert hat (schneller Wechsel
+    // ueber die URL), diese veralteten Nachlade-Ergebnisse verwerfen.
+    if(!CREATOR_ROW || CREATOR_ROW.id !== creatorId) return;
+    PRODUCTS.push(...data.map(mapProductRow));
+    if(data.length < PRODUCTS_PAGE_SIZE) return;
+    offset += PRODUCTS_PAGE_SIZE;
+  }
 }
 
 // Registrierungs-Popup: Profilbild, Name und Ziel-Link kommen 1:1 vom Creator-
