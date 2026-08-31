@@ -2592,29 +2592,30 @@ function buildProductCard(p, indexInGrid = 0){
   // dem Eager-Limit: ganz normal sofort laden, kein Vorlauf-Trick noetig.
   const isEager = indexInGrid < EAGER_IMAGE_COUNT || !lazyImageObserver;
   const imgTag = !p.img ? "" : isEager
-    ? `<img class="p-img" src="${p.img}" alt="">`
-    : `<img class="p-img p-img-lazy" data-src="${p.img}" alt="">`;
+    ? `<img class="p-img" src="${aesc(p.img)}" alt="">`
+    : `<img class="p-img p-img-lazy" data-src="${aesc(p.img)}" alt="">`;
+  const buyHrefRaw = creatorAffiliate ? buildAffiliateLink(p.url, creatorAffiliate.agentId, creatorAffiliate.inviteCode) : (p.url||'');
   card.innerHTML = `
     <div class="p-thumb">
       ${imgTag}
-      ${p.discountLabel ? `<span class="p-discount-badge" style="background:${p.discountColor||'#e11d48'}">${p.discountLabel}</span>` : ""}
+      ${p.discountLabel ? `<span class="p-discount-badge" style="background:${aesc(p.discountColor||'#e11d48')}">${aesc(p.discountLabel)}</span>` : ""}
       <button class="p-heart ${isWished?'active':''}" type="button" aria-pressed="${isWished}"
-              aria-label="${isWished ? t.wishRemove : t.wishAdd}: ${p.name}">${isWished?'\u2665':'\u2661'}</button>
+              aria-label="${isWished ? t.wishRemove : t.wishAdd}: ${aesc(p.name)}">${isWished?'\u2665':'\u2661'}</button>
     </div>
     <div class="p-info">
       <div class="p-name-row">
         ${(()=>{
           const m = p.name.trim().match(/^(.*?)\s*\(([^)]+)\)\s*$/);
-          if(!m) return `<span class="p-name" title="${p.name}">${p.name}</span>`;
-          return `<span class="p-name" title="${m[1]}">${m[1]}</span><span class="p-variant-tag">${m[2]}</span>`;
+          if(!m) return `<span class="p-name" title="${aesc(p.name)}">${aesc(p.name)}</span>`;
+          return `<span class="p-name" title="${aesc(m[1])}">${aesc(m[1])}</span><span class="p-variant-tag">${aesc(m[2])}</span>`;
         })()}
       </div>
       <div class="p-buy-row">
         <span class="p-price">${formatPrice(p.price)}</span>
         <a class="p-buy"
-           href="${creatorAffiliate ? buildAffiliateLink(p.url, creatorAffiliate.agentId, creatorAffiliate.inviteCode) : (p.url||'#')}"
-           ${(creatorAffiliate ? buildAffiliateLink(p.url, creatorAffiliate.agentId, creatorAffiliate.inviteCode) : p.url) ? 'target="_blank" rel="noopener noreferrer sponsored"' : ''}
-           aria-label="${label}: ${p.name}, ${formatPrice(p.price)}">${label}</a>
+           href="${aesc(buyHrefRaw || '#')}"
+           ${buyHrefRaw ? 'target="_blank" rel="noopener noreferrer sponsored"' : ''}
+           aria-label="${aesc(label)}: ${aesc(p.name)}, ${formatPrice(p.price)}">${aesc(label)}</a>
       </div>
     </div>`;
 
