@@ -6543,6 +6543,11 @@ function wireDragReorder(){
   // ueber den sichtbaren Bereich hinaus).
   function autoScrollStep(){
     if(!dragRow){ autoScrollRAF = null; return; }
+    // Erst ab bestaetigter echter Zieh-Bewegung aktiv werden -- sonst wuerde
+    // schon ein blosser Klick nahe am Bildschirmrand (ohne jede Absicht zu
+    // ziehen) sofort Dauer-Scroll+Tausch ausloesen ("kurzer Drag katapultiert
+    // nach oben").
+    if(!moved){ autoScrollRAF = requestAnimationFrame(autoScrollStep); return; }
     const vh = window.innerHeight;
     let speed = 0;
     if(lastClientY < AUTOSCROLL_EDGE){
