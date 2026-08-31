@@ -257,6 +257,10 @@
     color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
     text-decoration:none;cursor:pointer;touch-action:manipulation;
     transition:border-color .18s ease, color .18s ease;}
+  /* .howto-btn{display:inline-flex} hat dieselbe Spezifitaet wie die
+     Browser-Standardregel fuer [hidden] und steht im Code danach -- ohne
+     diese Regel bliebe der Button trotz hidden-Attribut sichtbar. */
+  .howto-btn[hidden]{display:none;}
   .howto-btn:hover{border-color:#d0d3da;color:var(--text);}
   .howto-btn:focus-visible{outline:3px solid rgba(59,102,245,.4);outline-offset:2px;}
   .howto-yt{width:18px;height:13px;flex:0 0 auto;display:block;opacity:.85;}
