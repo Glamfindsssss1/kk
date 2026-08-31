@@ -3607,9 +3607,10 @@ let subcatAdminCategoryKey = null;
 
 // Filter fuer die Produktliste im Admin — wichtig bei grossen Katalogen (100+ Produkte).
 // Bleiben ueber Re-Renders hinweg erhalten, werden aber beim Creator-Wechsel zurueckgesetzt.
-let productFilterCat   = "all";
-let productFilterStyle = "all";
-let productFilterQuery = "";
+let productFilterCat    = "all";
+let productFilterSubcat = "all";
+let productFilterStyle  = "all";
+let productFilterQuery  = "";
 
 const aesc = (s) => String(s ?? "").replace(/[&<>"']/g, c =>
   ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
@@ -4109,10 +4110,19 @@ function filteredAdminProducts(){
   const q = productFilterQuery.trim().toLowerCase();
   return state.products.filter(p=>{
     if(productFilterCat !== "all" && p.category !== productFilterCat) return false;
+    if(productFilterSubcat !== "all" && (p.subcategory || "") !== productFilterSubcat) return false;
     if(productFilterStyle !== "all" && (p.style_tag || "") !== productFilterStyle) return false;
     if(q && !p.title.toLowerCase().includes(q)) return false;
     return true;
   });
+}
+
+// Ob gerade irgendein Admin-Produktfilter aktiv ist -- an einer Stelle
+// gebuendelt, damit bei 4+ Verwendungen nicht eine davon vergessen wird,
+// wenn ein neuer Filter dazukommt (siehe productFilterSubcat).
+function isAdminProductFilterActive(){
+  return productFilterCat !== "all" || productFilterSubcat !== "all"
+      || productFilterStyle !== "all" || productFilterQuery.trim() !== "";
 }
 
 // Baut die Zeilen-HTML fuer eine gegebene (ggf. gefilterte) Produktliste.
@@ -4120,7 +4130,7 @@ function filteredAdminProducts(){
 // tauschen immer echte Nachbarn in dieser Reihenfolge, nie in der gefilterten Ansicht.
 function buildAdminProductRows(items, all, catLabel){
   if(!items.length){
-    const filterActive = productFilterCat !== "all" || productFilterStyle !== "all" || productFilterQuery.trim() !== "";
+    const filterActive = isAdminProductFilterActive();
     const creatorName = (state.creators.find(c=>c.id===state.activeId)||{}).name || "";
     return `<p class="a-empty">${filterActive
       ? "Kein Produkt passt zu diesem Filter."
@@ -4128,11 +4138,11 @@ function buildAdminProductRows(items, all, catLabel){
           ? "Noch keine gemeinsamen Produkte. Leg oben eins an — es landet automatisch bei jedem Creator."
           : `Noch keine Produkte für ${aesc(creatorName)}. Leg oben das erste an.`)}</p>`;
   }
-  const filterActive = productFilterCat !== "all" || productFilterStyle !== "all" || productFilterQuery.trim() !== "";
+  const filterActive = isAdminProductFilterActive();
   const isAllMode = state.activeId === ALL_CREATOR_ID;
   return items.map((p, filteredIndex)=>{
     const i = all.indexOf(p);
-    const filterActive = productFilterCat !== "all" || productFilterStyle !== "all" || productFilterQuery.trim() !== "";
+    const filterActive = isAdminProductFilterActive();
     // Bei aktivem Filter: Nummer innerhalb der gefilterten Ansicht (1,2,3…)
     // Ohne Filter: echte Globalposition
     const pos = filterActive ? filteredIndex + 1 : i + 1;
@@ -4859,6 +4869,15 @@ function renderDashboard(){
             </select>
           </div>
           <div class="a-filter-field">
+            <label class="a-label" for="filter-subcat">Unterkategorie</label>
+            <select id="filter-subcat" class="a-field" ${productFilterCat==="all" ? "disabled" : ""}
+                    title="${productFilterCat==="all" ? "Erst eine Kategorie waehlen" : ""}">
+              <option value="all">${productFilterCat==="all" ? "Erst Kategorie wählen" : "Alle Unterkategorien"}</option>
+              ${state.subcategories.filter(s => s.category_key === productFilterCat)
+                .map(s=>`<option value="${aesc(s.key)}" ${productFilterSubcat===s.key?"selected":""}>${aesc(s.label)}</option>`).join("")}
+            </select>
+          </div>
+          <div class="a-filter-field">
             <label class="a-label" for="filter-style">Style</label>
             <select id="filter-style" class="a-field">
               <option value="all">Alle Styles</option>
@@ -4873,7 +4892,7 @@ function renderDashboard(){
             </div>
           </div>
           <button type="button" class="a-btn a-btn-ghost a-filter-reset" id="filterReset"
-                  ${(productFilterCat==="all" && productFilterStyle==="all" && productFilterQuery.trim()==="") ? "hidden" : ""}>Filter zurücksetzen</button>
+                  ${!isAdminProductFilterActive() ? "hidden" : ""}>Filter zurücksetzen</button>
         </div>` : ""}
 
         <div class="a-list" id="list"></div>
@@ -7031,7 +7050,7 @@ function wireDashboard(){
       closeSwitch();
       state.activeId = pick.dataset.pick;
       editingProductId = null;
-      productFilterCat = "all"; productFilterStyle = "all"; productFilterQuery = "";
+      productFilterCat = "all"; productFilterSubcat = "all"; productFilterStyle = "all"; productFilterQuery = "";
       await loadCategoriesFor(state.activeId);
       state.products = await loadProducts(state.activeId);
       return render();
@@ -7942,13 +7961,21 @@ function wireDashboard(){
   // damit nicht bei jedem Tastenanschlag ein Netzwerk-Roundtrip-Gefuehl entsteht.
   // refreshAdminProductList() ersetzt nur #list + den Zaehler, nie das Suchfeld selbst —
   // dadurch bleibt der Cursor beim Tippen an Ort und Stelle.
-  const filterCatEl   = document.getElementById("filter-cat");
-  const filterStyleEl = document.getElementById("filter-style");
-  const filterQEl     = document.getElementById("filter-q");
-  const filterResetEl = document.getElementById("filterReset");
+  const filterCatEl    = document.getElementById("filter-cat");
+  const filterSubcatEl = document.getElementById("filter-subcat");
+  const filterStyleEl  = document.getElementById("filter-style");
+  const filterQEl      = document.getElementById("filter-q");
+  const filterResetEl  = document.getElementById("filterReset");
 
   if(filterCatEl) filterCatEl.onchange = ()=>{
     productFilterCat = filterCatEl.value;
+    // Unterkategorien gehoeren zu genau einer Kategorie -- bei Kategoriewechsel
+    // waere die bisherige Auswahl sonst ungueltig/verwirrend.
+    productFilterSubcat = "all";
+    render();
+  };
+  if(filterSubcatEl) filterSubcatEl.onchange = ()=>{
+    productFilterSubcat = filterSubcatEl.value;
     render();
   };
   if(filterStyleEl) filterStyleEl.onchange = ()=>{
@@ -7966,7 +7993,7 @@ function wireDashboard(){
     };
   }
   if(filterResetEl) filterResetEl.onclick = ()=>{
-    productFilterCat = "all"; productFilterStyle = "all"; productFilterQuery = "";
+    productFilterCat = "all"; productFilterSubcat = "all"; productFilterStyle = "all"; productFilterQuery = "";
     render();
   };
 }
