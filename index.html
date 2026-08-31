@@ -4897,6 +4897,7 @@ function renderDashboard(){
         })()}
       </div>
 
+      ${!isAllMode ? `
       <div class="a-card">
         <div class="a-head">
           <h2 class="a-h2">${isAllMode ? "Gemeinsame Produkte" : "Produkte & Reihenfolge"}</h2>
@@ -4964,7 +4965,7 @@ function renderDashboard(){
         </div>` : ""}
 
         <div class="a-list" id="list"></div>
-      </div>` : `
+      </div>` : ""}` : `
       <div class="a-card"><p class="a-empty">Leg oben deinen ersten Creator an, dann kannst du Produkte hinzufügen.</p></div>`}
     </div>`;
 
