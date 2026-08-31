@@ -4733,12 +4733,11 @@ function renderDashboard(){
       </div>
 
       ${(active || isAllMode) ? `
+      ${!isAllMode ? `
       <div class="a-card">
         <div class="a-head">
-          <h2 class="a-h2">Produkt hinzufügen <span class="a-target">\u2192 ${isAllMode ? "Alle Creator" : aesc(active.name)}</span></h2>
-          <p class="a-sub">${isAllMode
-            ? `Wird als unabhängige Kopie bei jedem${state.creators.length ? " (" + state.creators.length + ")" : ""} Creator angelegt \u2014 auch bei künftig neuen.`
-            : "Erscheint danach unten in der Liste und auf der Seite."}</p>
+          <h2 class="a-h2">Produkt hinzufügen <span class="a-target">\u2192 ${aesc(active.name)}</span></h2>
+          <p class="a-sub">Erscheint danach unten in der Liste und auf der Seite.</p>
         </div>
         <form id="productForm" class="a-grid">
           <div><label class="a-label" for="p-title">Titel *</label><input id="p-title" class="a-field" required placeholder="Ralph Lauren Decke">
@@ -4796,7 +4795,7 @@ function renderDashboard(){
             <button class="a-btn a-btn-primary" id="saveProduct">Produkt speichern</button>
           </div>
         </form>
-      </div>
+      </div>` : ""}
 
       <div class="a-card">
         <div class="a-head">
@@ -7971,51 +7970,17 @@ function wireDashboard(){
 
     let error;
     try {
-      if(state.activeId === ALL_CREATOR_ID){
-        if(!state.creators.length){
-          btn.disabled = false; btn.textContent = "Produkt speichern";
-          return atoast("Noch kein Creator vorhanden — leg oben erst einen an.", "err");
-        }
-        // Eine group_id verbindet alle Kopien dieser Aktion; sort_order wird pro
-        // Ziel-Creator einzeln anhand der "Position"-Auswahl in dessen eigene
-        // Liste einsortiert, nicht global.
-        const groupId = crypto.randomUUID();
-        const { data: existing } = await sb.from("products").select("creator_id, sort_order");
-        const ordersByCreator = new Map();
-        (existing ?? []).forEach(p => {
-          if(!ordersByCreator.has(p.creator_id)) ordersByCreator.set(p.creator_id, []);
-          ordersByCreator.get(p.creator_id).push(p.sort_order ?? 0);
-        });
-        const rows = state.creators.map(c => ({
-          ...baseFields,
-          creator_id: c.id,
-          group_id: groupId,
-          sort_order: pickSortOrder(ordersByCreator.get(c.id) ?? [], position)
-        }));
-        ({ error } = await sb.from("products").insert(rows));
-
-        // Fehlt die Spalte group_id noch in Supabase (Migration nicht ausgefuehrt),
-        // schlaegt der Insert mit ALLEN Zeilen fehl. Ohne group_id einzeln neu anlegen,
-        // damit wenigstens die Produkte selbst entstehen — nur die Gruppen-Verknuepfung
-        // (gemeinsames Bearbeiten/Löschen) fehlt dann, bis die Spalte angelegt ist.
-        if(error && /group_id/i.test(error.message || "")){
-          const rowsWithoutGroup = rows.map(({ group_id, ...rest }) => rest);
-          ({ error } = await sb.from("products").insert(rowsWithoutGroup));
-          if(!error){
-            atoast(`Produkt bei ${rows.length} ${rows.length === 1 ? "Creator" : "Creatorn"} angelegt — aber die Gruppen-Funktion (gemeinsames Bearbeiten) fehlt noch in der Datenbank. Spalte group_id in Supabase anlegen, siehe Chat.`, "err");
-          }
-        } else if(!error){
-          atoast(`Produkt bei ${rows.length} ${rows.length === 1 ? "Creator" : "Creatorn"} angelegt.`);
-        }
-      } else {
-        const sort_order = pickSortOrder(state.products.map(p => p.sort_order ?? 0), position);
-        ({ error } = await sb.from("products").insert({
-          ...baseFields,
-          creator_id: state.activeId,
-          sort_order
-        }));
-        if(!error) atoast("Produkt gespeichert.");
-      }
+      // Das Formular existiert nur noch pro einzelnem Creator (siehe
+      // Bedingung oben im Template) -- "Alle Creator" hat kein eigenes
+      // Hinzufuegen mehr, um bei vielen Creatorn/Produkten keine riesigen
+      // Kopiervorgaenge auszuloesen.
+      const sort_order = pickSortOrder(state.products.map(p => p.sort_order ?? 0), position);
+      ({ error } = await sb.from("products").insert({
+        ...baseFields,
+        creator_id: state.activeId,
+        sort_order
+      }));
+      if(!error) atoast("Produkt gespeichert.");
     } catch(jsErr){
       // Sicherheitsnetz: ein unerwarteter JS-Fehler soll nie stillschweigend
       // verpuffen, sondern immer sichtbar als Toast landen.
