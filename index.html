@@ -2025,6 +2025,19 @@ function slugFromPath(){
 let SLUG = slugFromPath() || new URLSearchParams(location.search).get("creator");
 let CREATOR_ROW = null;
 
+// Baut die oeffentliche Storefront-URL aus einem Slug -- genutzt sowohl im
+// Admin-Bearbeiten-Formular (Live-Vorschau beim Tippen) als auch im immer
+// sichtbaren Link-Bereich fuer den aktuell ausgewaehlten Creator. Fallback-
+// Domain fuer file://-Tests, wo window.location.origin nicht brauchbar ist.
+function buildShareLink(slug){
+  if(!slug) return "";
+  const base = (window.location.origin && window.location.origin !== "null"
+    && !window.location.origin.startsWith("file://"))
+    ? window.location.origin
+    : "https://stylefinder.com";
+  return `${base}/${encodeURIComponent(slug)}`;
+}
+
 // Bewusst OHNE Marken-Namen als Platzhalter (name/handle): bis applyCreator()
 // die echten Supabase-Daten eingesetzt hat, bleibt der Hero-Bereich per
 // .creator-loading unsichtbar (siehe oben) -- taucht dieses Objekt trotzdem
@@ -4566,6 +4579,23 @@ function renderDashboard(){
             <button class="a-btn a-btn-ghost" id="editCreator">Bearbeiten</button>` : ""}
           <button class="a-btn a-btn-ghost" id="toggleNew" style="margin-left:auto">+ Neuer Creator</button>
         </div>
+
+        ${(active && !isAllMode) ? `
+        <div class="a-full" style="margin-top:18px">
+          <label class="a-label" for="activeShareLink">Öffentlicher Creator-Link</label>
+          <div class="a-sharelink-row">
+            <div class="a-sharelink-field">
+              <svg class="a-sharelink-icon" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 0 1 0 10h-2"/><path d="M8 12h8"/>
+              </svg>
+              <input id="activeShareLink" class="a-sharelink-input" readonly value="${aesc(buildShareLink(active.slug))}" aria-label="Öffentlicher Creator-Link">
+            </div>
+            <button type="button" class="a-btn a-btn-primary a-sharelink-btn" id="activeShareCopy">
+              ${COPY_SVG}
+              <span id="activeShareCopyLabel">Link kopieren</span>
+            </button>
+          </div>
+        </div>` : ""}
 
         ${isAllMode ? `
         <div class="a-block" style="margin-top:22px">
@@ -7252,29 +7282,30 @@ function wireDashboard(){
   // Tastendruck im Slug-Feld sowie beim Oeffnen des Formulars. Nutzt einen
   // sauberen Pfad (/slug) statt ?creator=slug, mit Fallback-Domain fuer
   // file://-Tests, wo window.location.origin nicht brauchbar ist.
+  // (Die eigentliche URL-Bildung steckt in buildShareLink(), einer globalen
+  // Funktion weiter oben im Skript — die braucht auch der immer sichtbare
+  // Link-Bereich fuer den aktuell ausgewaehlten Creator, siehe renderDashboard().)
   const shareLinkInput = document.getElementById("c-sharelink");
   function updateShareLink(){
     const rawSlug = document.getElementById("c-slug").value.trim().toLowerCase()
       .replace(/[^a-z0-9-]+/g,"-").replace(/^-+|-+$/g,"");
-    const base = (window.location.origin && window.location.origin !== "null"
-      && !window.location.origin.startsWith("file://"))
-      ? window.location.origin
-      : "https://stylefinder.com";
-    shareLinkInput.value = rawSlug ? `${base}/${encodeURIComponent(rawSlug)}` : "";
+    shareLinkInput.value = buildShareLink(rawSlug);
   }
   document.getElementById("c-slug").addEventListener("input", updateShareLink);
 
-  async function copyShareLink(){
-    if(!shareLinkInput.value) return;
+  // Generisch gehalten, damit sowohl das Bearbeiten-Formular (c-sharelink)
+  // als auch der immer sichtbare Link-Bereich (activeShareLink) dieselbe
+  // Kopier-Logik samt Kurz-Feedback am Button nutzen koennen.
+  async function copyShareLinkFrom(inputEl, btnId){
+    if(!inputEl || !inputEl.value) return;
     try {
-      await navigator.clipboard.writeText(shareLinkInput.value);
+      await navigator.clipboard.writeText(inputEl.value);
       atoast("Creator-Link kopiert! \u{1F4CB}");
       // Kurzes visuelles Feedback direkt am Button, zusaetzlich zum Toast —
       // bestaetigt sofort am Klickort, auch wenn der Toast am Bildschirmrand
       // leicht uebersehen wird.
-      const btn = document.getElementById("c-sharecopy");
-      const label = document.getElementById("c-sharecopy-label");
-      if(btn && label && !btn.classList.contains("is-copied")){
+      const btn = document.getElementById(btnId);
+      if(btn && !btn.classList.contains("is-copied")){
         const prevHtml = btn.innerHTML;
         btn.classList.add("is-copied");
         btn.innerHTML = `${CHECK_SVG.replace("lang-check","a-btn-icon")}<span>Kopiert</span>`;
@@ -7284,8 +7315,16 @@ function wireDashboard(){
       atoast("Konnte nicht kopiert werden \u2014 bitte manuell markieren.", "err");
     }
   }
+  const copyShareLink = ()=> copyShareLinkFrom(shareLinkInput, "c-sharecopy");
   document.getElementById("c-sharecopy").onclick = copyShareLink;
   shareLinkInput.addEventListener("click", copyShareLink);
+
+  const activeShareLinkInput = document.getElementById("activeShareLink");
+  if(activeShareLinkInput){
+    const copyActiveShareLink = ()=> copyShareLinkFrom(activeShareLinkInput, "activeShareCopy");
+    document.getElementById("activeShareCopy").onclick = copyActiveShareLink;
+    activeShareLinkInput.addEventListener("click", copyActiveShareLink);
+  }
 
   // ---- Weidian-Shop-Zuweisung (Vorschau) ----
   // Simuliert das Ergebnis eines API-Aufrufs, der mit dem hinterlegten App Key
