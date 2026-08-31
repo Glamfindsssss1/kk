@@ -2730,31 +2730,42 @@ let productGridLoadObserver = null;
 
 // Ist kein bestimmter Style ausgewaehlt ("Alle Styles"), werden Produkte nicht
 // einfach nach sort_order gezeigt (das wuerde den zuerst angelegten Style
-// bevorzugen), sondern gestaffelt: immer 9 Produkte vom ersten Style (Reihen-
-// folge wie in der Style-Leiste), danach 9 vom naechsten, usw. im Kreis, bis
-// alle Produkte einsortiert sind. Produkte ganz ohne Style-Tag bilden dabei
-// einen eigenen, letzten "Style"-Block.
+// bevorzugen), sondern gestaffelt: immer bis zu 9 Produkte aus einem Style am
+// Stueck, danach wechselt der Block zum Style mit der naechst-vordersten
+// Position, usw. bis alle Produkte einsortiert sind. Produkte ganz ohne
+// Style-Tag bilden dabei einen eigenen "Style"-Block.
+// Welcher Style-Block als naechstes drankommt, richtet sich nach der echten
+// Position (sort_order) seines vordersten noch nicht ausgegebenen Produkts —
+// NICHT nach der festen Reihenfolge der Style-Reiter. Ein im Admin ganz nach
+// oben verschobenes Produkt erscheint dadurch auch hier zuerst, unabhaengig
+// davon, welcher Style-Reiter zuerst kommt (sonst haette "Position: oben" in
+// dieser Ansicht keine sichtbare Wirkung gehabt).
 const STAGGER_CHUNK_SIZE = 9;
 function staggerByStyle(items){
   const styleOrder = STYLES.slice(1); // STYLES[0] ist immer "ALL", zaehlt nicht als eigener Style
-  const buckets = styleOrder.map(s => items.filter(p => p.style === s));
-  const noStyle = items.filter(p => !styleOrder.includes(p.style));
+  // items kommt bereits sort_order-sortiert von der DB -- der Index hier dient
+  // als Rang-Ersatz, weil das gemappte Produktobjekt sort_order selbst nicht mitfuehrt.
+  const withRank = items.map((p, rank) => ({ p, rank }));
+  const buckets = styleOrder.map(s => withRank.filter(x => x.p.style === s));
+  const noStyle = withRank.filter(x => !styleOrder.includes(x.p.style));
   if(noStyle.length) buckets.push(noStyle);
 
   const result = [];
   const cursors = buckets.map(()=>0);
   let remaining = items.length;
   while(remaining > 0){
-    let tookAnyThisRound = false;
+    let pick = -1, pickRank = Infinity;
     buckets.forEach((bucket, i)=>{
       if(cursors[i] >= bucket.length) return;
-      const chunk = bucket.slice(cursors[i], cursors[i] + STAGGER_CHUNK_SIZE);
-      result.push(...chunk);
-      cursors[i] += chunk.length;
-      remaining -= chunk.length;
-      tookAnyThisRound = true;
+      const rank = bucket[cursors[i]].rank;
+      if(rank < pickRank){ pickRank = rank; pick = i; }
     });
-    if(!tookAnyThisRound) break; // Sicherheitsnetz, sollte hier eigentlich nie greifen
+    if(pick === -1) break; // Sicherheitsnetz, sollte hier eigentlich nie greifen
+    const bucket = buckets[pick];
+    const chunk = bucket.slice(cursors[pick], cursors[pick] + STAGGER_CHUNK_SIZE);
+    result.push(...chunk.map(x => x.p));
+    cursors[pick] += chunk.length;
+    remaining -= chunk.length;
   }
   return result;
 }
