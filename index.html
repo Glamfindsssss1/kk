@@ -2873,9 +2873,17 @@ function update(){
 // sie z.B. weiterhin 6 statt der neu passenden 12 Produkte. Entprellt, damit
 // nicht bei jedem Pixel waehrend des Ziehens neu gerendert wird.
 let resizeCollectionsTimer = null;
+let lastResizeWidth = window.innerWidth;
 window.addEventListener("resize", ()=>{
   clearTimeout(resizeCollectionsTimer);
   resizeCollectionsTimer = setTimeout(()=>{
+    // Nur bei Breitenaenderung neu rendern -- auf dem Handy aendert sich beim
+    // vertikalen Scrollen oft nur die Hoehe (Adressleiste blendet sich ein/aus),
+    // was ebenfalls ein "resize" ausloest. Ohne diesen Check baute das die
+    // komplette Home-Vorschau mitten im Scrollen neu auf -- sichtbar als
+    // Flackern/Zuruckspringen zur Anfangsansicht.
+    if(window.innerWidth === lastResizeWidth) return;
+    lastResizeWidth = window.innerWidth;
     const isHome = !viewAll && !wishOnly && activeCat === "all" && activeStyle === "ALL";
     if(isHome) renderCollections();
   }, 200);
