@@ -2237,7 +2237,7 @@ function renderCatRow(){
     btn.className = "cat-item" + (activeCat===c.key ? " active":"");
     const inner = c.img
       ? `<img src="${aesc(c.img)}" alt="${aesc(c.label)}">`
-      : c.icon ? aesc(c.icon) : (c.key === "all" ? ICON_GRID : "");
+      : c.icon ? (c.icon === ICON_GRID ? ICON_GRID : aesc(c.icon)) : (c.key === "all" ? ICON_GRID : "");
     const label = T().cats[c.key] || c.label;
     btn.innerHTML = `<span class="cat-circle">${inner}</span><span class="cat-label">${aesc(label)}</span>`;
     btn.dataset.key = c.key;
