@@ -6501,15 +6501,23 @@ function wireDragReorder(){
   const scrollEl = document.getElementById("adminRoot") || document.scrollingElement;
 
   let dragRow = null, dragId = null, pointerStartY = 0, rowHeight = 0, moved = false;
-  let lastClientY = 0, autoScrollRAF = null;
+  let lastClientY = 0, autoScrollRAF = null, lastSwapAt = 0;
 
   const AUTOSCROLL_EDGE = 90;      // px vom oberen/unteren Bildschirmrand, ab dem gescrollt wird
   const AUTOSCROLL_MAX_SPEED = 16; // px pro Frame, direkt am Rand
+  const SWAP_THROTTLE_MS = 90;     // Mindestabstand zwischen zwei Positionstauschen
 
   function rowsInList(){ return Array.from(list.querySelectorAll(":scope > .a-row")); }
 
   function checkSwap(){
     if(!dragRow) return;
+    // Haertet gegen jede Art von schnell wiederholten Aufrufen ab (z.B. viele
+    // pointermove-Events in kurzer Zeit bei einer schnellen Handbewegung) --
+    // pro Zeitfenster darf sich eine Karte hoechstens um eine Position bewegen,
+    // damit ein kurzer/schneller Drag nicht mehrere Positionen auf einmal
+    // ueberspringt ("Katapult"-Gefuehl).
+    const now = performance.now();
+    if(now - lastSwapAt < SWAP_THROTTLE_MS) return;
     const dragRect = dragRow.getBoundingClientRect();
     const dragMid = dragRect.top + dragRect.height / 2;
 
@@ -6522,6 +6530,8 @@ function wireDragReorder(){
         const afterTop = dragRow.getBoundingClientRect().top;
         pointerStartY += (afterTop - beforeTop);
         dragRow.style.transform = `translateY(${lastClientY - pointerStartY}px)`;
+        lastSwapAt = now;
+        return;
       }
     }
     const next = dragRow.nextElementSibling;
@@ -6533,6 +6543,7 @@ function wireDragReorder(){
         const afterTop = dragRow.getBoundingClientRect().top;
         pointerStartY += (afterTop - beforeTop);
         dragRow.style.transform = `translateY(${lastClientY - pointerStartY}px)`;
+        lastSwapAt = now;
       }
     }
   }
