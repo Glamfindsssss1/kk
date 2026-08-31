@@ -2236,10 +2236,10 @@ function renderCatRow(){
     btn.type = "button";
     btn.className = "cat-item" + (activeCat===c.key ? " active":"");
     const inner = c.img
-      ? `<img src="${c.img}" alt="${c.label}">`
-      : (c.icon || (c.key === "all" ? ICON_GRID : ""));
+      ? `<img src="${aesc(c.img)}" alt="${aesc(c.label)}">`
+      : c.icon ? aesc(c.icon) : (c.key === "all" ? ICON_GRID : "");
     const label = T().cats[c.key] || c.label;
-    btn.innerHTML = `<span class="cat-circle">${inner}</span><span class="cat-label">${label}</span>`;
+    btn.innerHTML = `<span class="cat-circle">${inner}</span><span class="cat-label">${aesc(label)}</span>`;
     btn.dataset.key = c.key;
     // Ohne das hier wuerde der Browser den Button beim Antippen fokussieren
     // und dabei automatisch "ins Sichtfeld scrollen" — weil renderCatRow()
@@ -2714,7 +2714,7 @@ function renderCollections(){
       <div class="section-head">
         <div>
           <div class="eyebrow-small">${t.collectionEyebrow}</div>
-          <h2 class="section-title">${label}</h2>
+          <h2 class="section-title">${aesc(label)}</h2>
         </div>
         <a href="#alle" class="view-all">${t.viewAll}</a>
       </div>
