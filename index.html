@@ -2027,15 +2027,27 @@ let CREATOR_ROW = null;
 
 // Baut die oeffentliche Storefront-URL aus einem Slug -- genutzt sowohl im
 // Admin-Bearbeiten-Formular (Live-Vorschau beim Tippen) als auch im immer
-// sichtbaren Link-Bereich fuer den aktuell ausgewaehlten Creator. Fallback-
-// Domain fuer file://-Tests, wo window.location.origin nicht brauchbar ist.
+// sichtbaren Link-Bereich fuer den aktuell ausgewaehlten Creator.
+// WICHTIG: nutzt bewusst das ?creator=slug-Format statt eines sauberen Pfads
+// (/slug) -- laeuft die Seite (wie aktuell) unter einem Unterordner, z.B.
+// GitHub Pages als username.github.io/kk/, wuerde ein saubererer Pfad wie
+// .../kk/cocofinds von GitHub direkt mit 404 beantwortet (nie bei index.html
+// ankommen), weil dort keine echte Datei/kein Ordner "cocofinds" existiert.
+// Das Query-Format bleibt dagegen IMMER im selben Verzeichnis wie index.html
+// und funktioniert deshalb unabhaengig davon, ob die Seite auf einer
+// Domain-Wurzel oder einem Unterordner laeuft. slugFromPath() unterstuetzt
+// sauberere Pfade weiterhin als Fallback, falls mal auf eine echte
+// Domain-Wurzel mit Server-Rewrite umgezogen wird.
+// Fallback-Domain fuer file://-Tests, wo window.location.origin nicht brauchbar ist.
 function buildShareLink(slug){
   if(!slug) return "";
-  const base = (window.location.origin && window.location.origin !== "null"
-    && !window.location.origin.startsWith("file://"))
-    ? window.location.origin
-    : "https://stylefinder.com";
-  return `${base}/${encodeURIComponent(slug)}`;
+  if(window.location.origin === "null" || window.location.origin.startsWith("file://")){
+    return `https://stylefinder.com/?creator=${encodeURIComponent(slug)}`;
+  }
+  // Verzeichnis, in dem index.html liegt -- alles nach dem letzten "/" im
+  // Pfad abschneiden (deckt sowohl "/kk/" als auch "/kk/index.html" ab).
+  const dir = window.location.pathname.replace(/[^/]*$/, "");
+  return `${window.location.origin}${dir}?creator=${encodeURIComponent(slug)}`;
 }
 
 // Bewusst OHNE Marken-Namen als Platzhalter (name/handle): bis applyCreator()
