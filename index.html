@@ -4493,7 +4493,8 @@ function renderDashboard(){
             : "Erscheint danach unten in der Liste und auf der Seite."}</p>
         </div>
         <form id="productForm" class="a-grid">
-          <div><label class="a-label" for="p-title">Titel *</label><input id="p-title" class="a-field" required placeholder="Ralph Lauren Decke"></div>
+          <div><label class="a-label" for="p-title">Titel *</label><input id="p-title" class="a-field" required placeholder="Ralph Lauren Decke">
+            <p class="a-hint">Tipp: (-30%) im Titel fügt automatisch das Rabatt-Badge hinzu.</p></div>
           <div><label class="a-label" for="p-price">Preis in €</label><input id="p-price" class="a-field" type="number" min="0" step="0.01" value="0"></div>
 
           <div class="a-full">
@@ -7517,15 +7518,26 @@ function wireDashboard(){
     btn.textContent = "Speichert …";
     const url = document.getElementById("p-url").value.trim();
 
+    // Klammer-Kurzschreibweise im Titel, z.B. "Ralph Lauren Decke (-30%)":
+    // wird als Rabatt-Badge herausgelöst und aus dem Titel entfernt. Die Farbe
+    // bleibt leer, damit dieselbe Standardfarbe (#e11d48) greift wie beim manuell
+    // im Bearbeiten-Dialog gesetzten Badge (dort per Fallback in der Kartenanzeige).
+    const titleRaw = document.getElementById("p-title").value.trim();
+    const discountMatch = titleRaw.match(/\(\s*(-\d+%)\s*\)/);
+    const title = discountMatch
+      ? titleRaw.replace(discountMatch[0], "").replace(/\s{2,}/g, " ").trim()
+      : titleRaw;
+
     const baseFields = {
-      title: document.getElementById("p-title").value.trim(),
+      title,
       price: Number(document.getElementById("p-price").value) || 0,
       product_url: url || null,
       category: document.getElementById("p-cat").value,
       subcategory: document.getElementById("p-subcat").value || null,
       style_tag: document.getElementById("p-style").value.trim() || null,
       image_url: uploadedUrl || null,
-      is_trend: document.getElementById("p-trend").checked
+      is_trend: document.getElementById("p-trend").checked,
+      discount_label: discountMatch ? discountMatch[1] : null
     };
 
     let error;
