@@ -6632,51 +6632,58 @@ function wireDragReorder(){
     cleanup();
     if(!wasMoved) return;
 
-    const oldIds = state.products.map(p => p.id);
-    const oldIndex = oldIds.indexOf(id);
-    if(oldIndex === -1) return;
-
-    // Bei aktivem Filter enthaelt finalOrder nur die gefilterten Zeilen — die
-    // Position darin sagt nichts direkt ueber die echte Position in state.products
-    // aus. Stattdessen: den sichtbaren Vorgaenger/Nachfolger des gezogenen Produkts
-    // in der gefilterten Liste als Anker nehmen und es in der VOLLEN Liste direkt
-    // davor bzw. dahinter einsortieren — ausgeblendete Produkte dazwischen rutschen
-    // dabei automatisch mit, was dem sichtbaren Ergebnis entspricht, das man gezogen hat.
+    // Bei aktivem Filter enthaelt finalOrder nur die gefilterten Zeilen. Frueher
+    // wurde daraus eine Ziel-Position in der VOLLEN Liste berechnet und das
+    // Produkt dorthin ueber eine Kette von Nachbar-Taeuschen (swap_product_order)
+    // bewegt -- lagen die beiden sichtbaren Nachbarn im vollen Katalog aber weit
+    // auseinander (z.B. bei einem engen Unterkategorie-Filter), riss das ALLE
+    // dazwischenliegenden, unsichtbaren Produkte mit und katapultierte das
+    // gezogene Produkt teils bis ganz an den Anfang -- selbst bei einem kurzen
+    // Drag. Jetzt wird stattdessen EIN neuer sort_order-Wert direkt zwischen
+    // den beiden sichtbaren Nachbarn berechnet und nur das gezogene Produkt
+    // bekommt einen neuen Wert -- alle anderen bleiben unangetastet.
     const draggedPosInVisible = finalOrder.indexOf(id);
     const visibleNextId = finalOrder[draggedPosInVisible + 1];
     const visiblePrevId = finalOrder[draggedPosInVisible - 1];
+    if(!visibleNextId && !visiblePrevId) return; // einzige sichtbare Zeile — keine Bewegung moeglich
 
-    const withoutDragged = oldIds.filter(x => x !== id);
-    let newIndex;
-    if(visibleNextId){
-      newIndex = withoutDragged.indexOf(visibleNextId); // direkt vor den sichtbaren Nachfolger
-    } else if(visiblePrevId){
-      newIndex = withoutDragged.indexOf(visiblePrevId) + 1; // direkt nach den sichtbaren Vorgaenger
-    } else {
-      return; // einzige sichtbare Zeile — keine Bewegung moeglich
+    function computeGap(){
+      const byId = new Map(state.products.map(p => [p.id, p]));
+      const nextO = visibleNextId ? (byId.get(visibleNextId)?.sort_order ?? 0) : null;
+      const prevO = visiblePrevId ? (byId.get(visiblePrevId)?.sort_order ?? 0) : null;
+      if(nextO != null && prevO != null){
+        return { value: Math.round((nextO + prevO) / 2), hasGap: nextO - prevO >= 2 };
+      }
+      return { value: nextO != null ? nextO - 10 : prevO + 10, hasGap: true };
+    }
+
+    let gap = computeGap();
+    if(!gap.hasGap){
+      // Kein ganzzahliger Platz mehr zwischen den Nachbarn (z.B. nach vielen
+      // Drags in dieselbe Luecke) -- alle uebrigen Produkte dieses Creators
+      // frisch in 10er-Schritten durchnummerieren (relative Reihenfolge bleibt
+      // erhalten), dann die Luecke neu berechnen.
+      const others = state.products.filter(p => p.id !== id);
+      const results = await Promise.all(
+        others.map((p, i) => sb.from("products").update({ sort_order: (i + 1) * 10 }).eq("id", p.id))
+      );
+      const err = results.find(r => r.error);
+      if(err){ atoast(err.error.message, "err"); return; }
+      state.products = await loadProducts(state.activeId);
+      gap = computeGap();
     }
 
     // Reihenfolge sofort optisch uebernehmen, waehrend im Hintergrund gespeichert wird.
-    // (render() ersetzt #list komplett neu — die alte Referenz hier ist danach nicht mehr noetig.)
-    const reordered = withoutDragged.slice();
-    reordered.splice(newIndex, 0, id);
-    if(reordered.join(",") === oldIds.join(",")) return; // keine tatsaechliche Verschiebung
-    state.products = reordered.map(pid => state.products.find(p => p.id === pid));
+    const draggedProduct = state.products.find(p => p.id === id);
+    if(!draggedProduct) return;
+    const reordered = state.products.filter(p => p.id !== id);
+    const insertAt = visibleNextId ? reordered.findIndex(p => p.id === visibleNextId) : reordered.length;
+    reordered.splice(insertAt, 0, { ...draggedProduct, sort_order: gap.value });
+    state.products = reordered;
     render();
 
-    // swap_product_order arbeitet mit Nachbar-Tausch in der ECHTEN Reihenfolge —
-    // oldIndex/finalIndex hier beziehen sich deshalb auf oldIds, nicht auf withoutDragged.
-    const finalIndex = reordered.indexOf(id);
-    const dir = finalIndex > oldIndex ? 1 : -1;
-    const working = oldIds.slice();
-    let cur = oldIndex;
-    while(cur !== finalIndex){
-      const a = working[cur], b = working[cur + dir];
-      const { error } = await sb.rpc("swap_product_order", { a, b });
-      if(error){ atoast(error.message, "err"); break; }
-      [working[cur], working[cur + dir]] = [working[cur + dir], working[cur]];
-      cur += dir;
-    }
+    const { error } = await sb.from("products").update({ sort_order: gap.value }).eq("id", id);
+    if(error) atoast(error.message, "err");
     state.products = await loadProducts(state.activeId);
     render();
   }
