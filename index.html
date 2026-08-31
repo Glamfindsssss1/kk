@@ -7739,9 +7739,9 @@ function wireDashboard(){
     const url = document.getElementById("p-url").value.trim();
 
     // Klammer-Kurzschreibweise im Titel, z.B. "Ralph Lauren Decke (-30%)":
-    // wird als Rabatt-Badge herausgelöst und aus dem Titel entfernt. Die Farbe
-    // bleibt leer, damit dieselbe Standardfarbe (#e11d48) greift wie beim manuell
-    // im Bearbeiten-Dialog gesetzten Badge (dort per Fallback in der Kartenanzeige).
+    // wird als Rabatt-Badge herausgelöst und aus dem Titel entfernt, fest in
+    // Hellblau (#38bdf8) -- so gewuenscht, statt der roten Standardfarbe des
+    // manuellen Bearbeiten-Dialogs.
     const titleRaw = document.getElementById("p-title").value.trim();
     const discountMatch = titleRaw.match(/\(\s*(-\d+%)\s*\)/);
     const title = discountMatch
@@ -7757,7 +7757,8 @@ function wireDashboard(){
       style_tag: document.getElementById("p-style").value.trim() || null,
       image_url: uploadedUrl || null,
       is_trend: document.getElementById("p-trend").checked,
-      discount_label: discountMatch ? discountMatch[1] : null
+      discount_label: discountMatch ? discountMatch[1] : null,
+      discount_color: discountMatch ? "#38bdf8" : null
     };
 
     let error;
