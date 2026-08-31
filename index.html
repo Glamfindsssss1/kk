@@ -3085,6 +3085,13 @@ function applyCurrency(){
   curToggle.textContent = CURRENCIES[currency].symbol;
   curToggle.setAttribute("aria-label", `${T().currencyLabel || "Currency"}: ${currencyName(currency)}`);
   renderCurMenu();
+  // Preisfilter-Anzeige (Symbol + umgerechnete Zahlen) sofort mitziehen --
+  // sonst zeigt er bis zum naechsten Slider-Kontakt weiter die alte Waehrung.
+  if(document.getElementById("pfMin")){
+    document.getElementById("pfCurMin").textContent = pfSymbol();
+    document.getElementById("pfCurMax").textContent = pfSymbol();
+    pfSyncUI();
+  }
   update();                       // Preise neu formatieren
 }
 
@@ -3381,11 +3388,6 @@ function initPriceFilter(){
   rMin.value = pfAbsMin;
   rMax.value = pfAbsMax;
 
-  document.getElementById("pfNumMin").min = pfAbsMin;
-  document.getElementById("pfNumMax").min = pfAbsMin;
-  document.getElementById("pfNumMin").value = pfAbsMin;
-  document.getElementById("pfNumMax").value = pfAbsMax;
-
   const sym = pfSymbol();
   document.getElementById("pfCurMin").textContent = sym;
   document.getElementById("pfCurMax").textContent = sym;
@@ -3394,6 +3396,14 @@ function initPriceFilter(){
   document.getElementById("priceFilterWrap").hidden = false;
 }
 
+// Die Range-Slider (rMin/rMax) und priceMin/priceMax bleiben INTERN immer in
+// der Basis-Waehrung EUR (dieselbe Einheit wie PRODUCTS[].price, siehe
+// filtered()) -- nur die angezeigten Zahlen (Label, Zahl-Felder) werden fuer
+// die aktuell gewaehlte Anzeigewaehrung umgerechnet. Ohne diese Umrechnung
+// zeigte der Filter z.B. bei CNY "¥50" statt "¥392" fuer denselben Preis, den
+// die Produktkarten (formatPrice()) korrekt umgerechnet anzeigen -- verwirrend
+// und nicht vertrauenswuerdig fuer Kaeufer, auch wenn die Filterung selbst
+// (EUR gegen EUR) technisch immer richtig blieb.
 function pfSyncUI(){
   const rMin = document.getElementById("pfMin");
   const rMax = document.getElementById("pfMax");
@@ -3403,6 +3413,8 @@ function pfSyncUI(){
   const numMin = document.getElementById("pfNumMin");
   const numMax = document.getElementById("pfNumMax");
   const sym = pfSymbol();
+  const rate = CURRENCIES[currency].rate;
+  const toDisplay = v => Math.round(v * rate);
 
   const lo = Number(rMin.value), hi = Number(rMax.value);
   const span = pfAbsMax - pfAbsMin || 1;
@@ -3410,18 +3422,20 @@ function pfSyncUI(){
   fill.style.left  = ((lo - pfAbsMin) / span * 100) + "%";
   fill.style.width = ((hi - lo) / span * 100) + "%";
 
-  numMin.value = lo;
-  numMax.value = hi;
+  numMin.min = numMax.min = toDisplay(pfAbsMin);
+  numMin.max = numMax.max = toDisplay(pfAbsMax);
+  numMin.value = toDisplay(lo);
+  numMax.value = toDisplay(hi);
 
   label.textContent = (lo === pfAbsMin && hi === pfAbsMax)
     ? "Alle Preise"
-    : `${sym}${lo} – ${sym}${hi}`;
+    : `${sym}${toDisplay(lo)} – ${sym}${toDisplay(hi)}`;
 
   // Trigger-Button zeigt aktiven Zustand
   const trigger = document.getElementById("pfTrigger");
   const isActive = lo > pfAbsMin || hi < pfAbsMax;
   trigger.classList.toggle("active", isActive);
-  document.getElementById("pfLabel").textContent = isActive ? `${sym}${lo}–${sym}${hi}` : "Preis";
+  document.getElementById("pfLabel").textContent = isActive ? `${sym}${toDisplay(lo)}–${sym}${toDisplay(hi)}` : "Preis";
 
   reset.disabled = !isActive;
 
@@ -3466,10 +3480,16 @@ function wirePriceFilter(){
   rMin.addEventListener("input", onSliderChange);
   rMax.addEventListener("input", onSliderChange);
 
-  // Zahl-Inputs → Slider + Filter (bei Enter oder Blur)
+  // Zahl-Inputs → Slider + Filter (bei Enter oder Blur). Die Felder zeigen
+  // Werte in der aktuell gewaehlten Anzeigewaehrung (siehe pfSyncUI) --
+  // deshalb hier erst zurueck in die interne Basis-Waehrung (EUR) umrechnen,
+  // bevor gegen pfAbsMin/pfAbsMax (immer EUR) geklemmt wird.
   function applyNum(){
-    const lo = Math.max(pfAbsMin, Math.min(pfAbsMax, Number(numMin.value)||pfAbsMin));
-    const hi = Math.max(pfAbsMin, Math.min(pfAbsMax, Number(numMax.value)||pfAbsMax));
+    const rate = CURRENCIES[currency].rate;
+    const typedMin = Number(numMin.value) / rate;
+    const typedMax = Number(numMax.value) / rate;
+    const lo = Math.max(pfAbsMin, Math.min(pfAbsMax, typedMin || pfAbsMin));
+    const hi = Math.max(pfAbsMin, Math.min(pfAbsMax, typedMax || pfAbsMax));
     rMin.value = Math.min(lo, hi);
     rMax.value = Math.max(lo, hi);
     pfSyncUI();
