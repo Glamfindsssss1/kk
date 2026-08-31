@@ -7430,6 +7430,10 @@ function wireDashboard(){
     e.preventDefault();
     const slug = document.getElementById("c-slug").value.trim().toLowerCase()
       .replace(/[^a-z0-9-]+/g,"-").replace(/^-+|-+$/g,"");
+    // Bestand nur aus Sonderzeichen (z.B. "@@@") -> nach der Bereinigung leer.
+    // Ohne diese Pruefung waere der Creator ueber keine gueltige URL mehr
+    // erreichbar (leerer Pfad faellt auf den Standard-Creator zurueck).
+    if(!slug) return atoast("URL-Slug ergibt nach Bereinigung nichts Gültiges — bitte Buchstaben/Zahlen verwenden.", "err");
     const name = document.getElementById("c-name").value.trim();
 
     const daten = {
