@@ -3162,9 +3162,19 @@ const CLOCK_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 const X_SVG     = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M5 5l14 14"/><path d="M19 5L5 19"/></svg>`;
 
 // ---------- Overlay-Inhalt ----------
-function renderOverlay(){
+async function renderOverlay(){
   const t = T();
-  const q = searchQuery.trim();
+  let q = searchQuery.trim();
+  // Wie update() bei Kategorie-/Style-Ansichten: eine echte Suche braucht den
+  // vollstaendigen Katalog (searchResults() durchsucht PRODUCTS direkt), sonst
+  // fehlen bei grossen Katalogen Treffer, solange der Hintergrund-Nachlade-
+  // vorgang noch laeuft (siehe loadRemainingProducts). Ohne diese Wartezeit
+  // haette man z.B. bei 7000 Produkten kurz nach dem Laden unvollstaendige
+  // Suchergebnisse bekommen, ohne jeden Hinweis darauf.
+  if(q && !productsFullyLoaded){
+    await productsFullLoadPromise;
+    q = searchQuery.trim(); // waehrend des Wartens koennte sich die Eingabe geaendert haben
+  }
   soInner.innerHTML = "";
 
   // Ohne Eingabe: der Verlauf
