@@ -3733,7 +3733,7 @@ function renderAdminError(e){
 // so lassen sich z.B. pro Creator unterschiedliche Weidian-Links (unterschiedliche
 // Shops fuer dasselbe Produkt) per CSV-Export/-Bearbeiten/-Re-Import pflegen,
 // ohne dass jede Kopie einzeln im Admin angeklickt werden muss.
-const CSV_COLUMNS = ["id", "creator", "title", "price", "category", "style", "image_url", "weidian_url"];
+const CSV_COLUMNS = ["id", "creator", "title", "price", "category", "subcategory", "style", "image_url", "weidian_url"];
 
 function csvEscapeField(v){
   const s = v === null || v === undefined ? "" : String(v);
@@ -3743,18 +3743,19 @@ function csvEscapeField(v){
 }
 
 // Ein einzelner Produkt-Datensatz (Supabase-Row) -> eine CSV-Zeile nach aussen.
-// catLabel wandelt den internen category-Key ("tops") in das lesbare Label
-// ("Tops") um, das auch im Formular angezeigt wird — der Import unten macht
-// den Weg zurueck. creatorLabel identifiziert, zu welchem Creator diese
-// konkrete Kopie gehoert (wichtig im "Alle Creator"-Export, wo jede Kopie
-// ihren eigenen Weidian-Link haben kann).
-function productToCsvRow(p, catLabel, creatorLabel){
+// catLabel/subcatLabel wandeln die internen Keys ("tops"/"hoodie") in die
+// lesbaren Labels ("Tops"/"Hoodie") um, die auch im Formular angezeigt
+// werden — der Import unten macht den Weg zurueck. creatorLabel identifiziert,
+// zu welchem Creator diese konkrete Kopie gehoert (wichtig im "Alle
+// Creator"-Export, wo jede Kopie ihren eigenen Weidian-Link haben kann).
+function productToCsvRow(p, catLabel, subcatLabel, creatorLabel){
   return [
     p.id ?? "",
     creatorLabel ?? "",
     p.title ?? "",
     p.price ?? 0,
     catLabel(p.category) ?? p.category ?? "",
+    p.subcategory ? (subcatLabel(p.category, p.subcategory) ?? p.subcategory) : "",
     p.style_tag ?? "",
     p.image_url ?? "",
     p.product_url ?? ""
@@ -3766,8 +3767,12 @@ function productToCsvRow(p, catLabel, creatorLabel){
 // einzelner Creator oder "Alle Creator").
 function buildProductsCsv(products, creatorLabelFor){
   const catLabel = k => (state.categories.find(c => c.key === k) || {}).label || k;
+  // Unterkategorie-Keys sind nur INNERHALB ihrer Kategorie eindeutig (siehe
+  // subcategories-Schema) -- deshalb hier immer beide zusammen nachschlagen.
+  const subcatLabel = (catKey, subKey) =>
+    (state.subcategories.find(s => s.key === subKey && s.category_key === catKey) || {}).label;
   const lines = [CSV_COLUMNS.join(",")];
-  products.forEach(p => lines.push(productToCsvRow(p, catLabel, creatorLabelFor ? creatorLabelFor(p) : "")));
+  products.forEach(p => lines.push(productToCsvRow(p, catLabel, subcatLabel, creatorLabelFor ? creatorLabelFor(p) : "")));
   // CRLF, weil Excel (haeufigstes Ziel fuer CSV-Backups) damit zuverlaessiger
   // umgeht als mit reinem \n.
   return lines.join("\r\n");
@@ -3886,6 +3891,14 @@ async function importProductsFromCSV(file){
     catByLabelOrKey.set(c.label.toLowerCase(), c.key);
   });
 
+  // Unterkategorie-Keys sind nur innerhalb ihrer Kategorie eindeutig -- der
+  // Lookup-Schluessel kombiniert deshalb category_key + Name/Key.
+  const subcatByLabelOrKey = new Map();
+  state.subcategories.forEach(s => {
+    subcatByLabelOrKey.set(s.category_key + "|" + s.key.toLowerCase(), s.key);
+    subcatByLabelOrKey.set(s.category_key + "|" + s.label.toLowerCase(), s.key);
+  });
+
   const last0 = state.products.reduce((m,p)=> Math.max(m, p.sort_order ?? 0), 0);
   const toInsert = [];
   const toUpdate = [];
@@ -3901,10 +3914,19 @@ async function importProductsFromCSV(file){
       return;
     }
     const priceRaw = idx.price !== undefined ? (r[idx.price] ?? "").replace(",", ".") : "";
+    const rawSubcategory = idx.subcategory !== undefined ? (r[idx.subcategory] ?? "").trim() : "";
+    const subcategoryKey = rawSubcategory
+      ? (subcatByLabelOrKey.get(categoryKey + "|" + rawSubcategory.toLowerCase()) || null)
+      : null;
+    if(rawSubcategory && !subcategoryKey){
+      skipped.push(`Zeile ${i+2}: Unterkategorie "${rawSubcategory}" nicht bei Kategorie "${rawCategory}" gefunden`);
+      return;
+    }
     const fields = {
       title,
       price: Number(priceRaw) || 0,
       category: categoryKey,
+      subcategory: subcategoryKey,
       style_tag: idx.style !== undefined ? (r[idx.style] ?? "").trim() || null : null,
       image_url: idx.image_url !== undefined ? (r[idx.image_url] ?? "").trim() || null : null,
       product_url: idx.weidian_url !== undefined ? (r[idx.weidian_url] ?? "").trim() || null : null
@@ -4922,7 +4944,7 @@ function renderDashboard(){
           <label class="a-upload a-csv-dropzone" id="csvDropZone">
             ${UPLOAD_SVG}
             <span>CSV-Datei w\u00e4hlen</span>
-            <span class="a-upload-hint">oder hierher ziehen \u2014 Spalten: id, creator, title, price, category, style, image_url, weidian_url. Zeilen mit id (aus einem Export) aktualisieren die bestehende Zeile statt eine neue anzulegen.</span>
+            <span class="a-upload-hint">oder hierher ziehen \u2014 Spalten: id, creator, title, price, category, subcategory, style, image_url, weidian_url. Zeilen mit id (aus einem Export) aktualisieren die bestehende Zeile statt eine neue anzulegen.</span>
             <input id="csvFileInput" type="file" accept=".csv,text/csv">
           </label>
           <p class="a-hint" id="csvImportStatus" style="margin-top:8px"></p>
