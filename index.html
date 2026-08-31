@@ -1821,6 +1821,12 @@ const AFFILIATE_AGENTS = {
     productUrlTemplate:  "https://litbuy.com/product/weidian/{ITEM_ID}?inviteCode={CODE}",
     displayName: "LitBuy"
   },
+  usfans:  {
+    registerHostPattern: "usfans.com",
+    productUrlTemplate:  "https://usfans.com/product/3/{ITEM_ID}?ref={CODE}",
+    codeParam: "ref", // usfans nutzt "ref" statt "inviteCode" im Registrierungslink
+    displayName: "USfans"
+  },
   // Weitere Agenten hier eintragen, z. B.:
   // mulebuy: { registerHostPattern: "mulebuy.com", productUrlTemplate: "...", displayName: "MuleBuy" },
 };
@@ -1848,7 +1854,7 @@ function parseCreatorRegisterLink(registerUrl) {
     const host = url.hostname.toLowerCase();
     for (const [agentId, cfg] of Object.entries(AFFILIATE_AGENTS)) {
       if (host.includes(cfg.registerHostPattern)) {
-        return { agentId, inviteCode: url.searchParams.get("inviteCode") ?? "" };
+        return { agentId, inviteCode: url.searchParams.get(cfg.codeParam || "inviteCode") ?? "" };
       }
     }
     return null;
