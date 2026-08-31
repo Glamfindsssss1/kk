@@ -3928,21 +3928,35 @@ async function importProductsFromCSV(file){
   setStatus(`Importiere \u2026`);
 
   if(toUpdate.length){
-    const results = await Promise.all(toUpdate.map(({ id, ...fields }) =>
-      sb.from("products").update(fields).eq("id", id)
-    ));
-    const err = results.find(r => r.error);
-    if(err){
-      setStatus("Aktualisieren fehlgeschlagen: " + err.error.message, true);
-      return;
+    // Ein Batch-Upsert pro Portion statt eines HTTP-Requests PRO ZEILE --
+    // bei grossen Katalogen (mehrere tausend Zeilen in einer CSV) wuerden
+    // sonst ebenso viele parallele Anfragen abgeschickt, was Browser und API
+    // ueberlastet. upsert() matcht ueber den Primaerschluessel (id) und setzt
+    // nur die mitgelieferten Spalten -- creator_id, sort_order, group_id etc.
+    // bleiben unangetastet.
+    const CHUNK = 500;
+    for(let i = 0; i < toUpdate.length; i += CHUNK){
+      const chunk = toUpdate.slice(i, i + CHUNK);
+      setStatus(`Aktualisiere ${Math.min(i + CHUNK, toUpdate.length)} / ${toUpdate.length} …`);
+      const { error } = await sb.from("products").upsert(chunk);
+      if(error){
+        setStatus("Aktualisieren fehlgeschlagen: " + error.message, true);
+        return;
+      }
     }
   }
 
   if(toInsert.length){
-    const { error } = await sb.from("products").insert(toInsert);
-    if(error){
-      setStatus("Import fehlgeschlagen: " + error.message, true);
-      return;
+    // Ebenfalls in Portionen, aus demselben Grund wie beim Update-Batch oben.
+    const CHUNK = 500;
+    for(let i = 0; i < toInsert.length; i += CHUNK){
+      const chunk = toInsert.slice(i, i + CHUNK);
+      setStatus(`Lege an: ${Math.min(i + CHUNK, toInsert.length)} / ${toInsert.length} …`);
+      const { error } = await sb.from("products").insert(chunk);
+      if(error){
+        setStatus("Import fehlgeschlagen: " + error.message, true);
+        return;
+      }
     }
   }
 
