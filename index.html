@@ -3899,6 +3899,22 @@ function parseCsv(text){
   return rows.filter(r => r.length > 1 || r[0] !== "");
 }
 
+// Liest einen Preis aus einer CSV-Zelle. Deckt sowohl das Export-Format
+// ("19.99", Punkt als Dezimaltrennzeichen) als auch von Hand in Excel mit
+// deutschem Zahlenformat eingetragene Preise ab ("19,99" oder bei groesseren
+// Betraegen "1.234,56" mit Punkt als Tausendertrenner). Ohne die Tausender-
+// Erkennung wurde "1.234,56" vorher zu "1.234.56" (zwei Punkte) und ergab
+// NaN -> der Preis landete stillschweigend bei 0.
+function parsePriceInput(raw){
+  const s = String(raw ?? "").trim();
+  if(!s) return 0;
+  const normalized = /,\d{1,2}$/.test(s)
+    ? s.replace(/\./g, "").replace(",", ".")
+    : s.replace(",", ".");
+  const n = Number(normalized);
+  return Number.isFinite(n) ? n : 0;
+}
+
 // Findet zu jedem erwarteten CSV-Header die passende Spalten-Position — case-
 // insensitiv und ohne Ruecksicht auf Reihenfolge, damit exportierte Dateien
 // (und von Hand in Excel umsortierte Spalten) trotzdem zuverlaessig einlesen.
@@ -3969,7 +3985,6 @@ async function importProductsFromCSV(file){
       skipped.push(`Zeile ${i+2}: Kategorie "${rawCategory}" nicht gefunden`);
       return;
     }
-    const priceRaw = idx.price !== undefined ? (r[idx.price] ?? "").replace(",", ".") : "";
     const rawSubcategory = idx.subcategory !== undefined ? (r[idx.subcategory] ?? "").trim() : "";
     const subcategoryKey = rawSubcategory
       ? (subcatByLabelOrKey.get(categoryKey + "|" + rawSubcategory.toLowerCase()) || null)
@@ -3980,7 +3995,7 @@ async function importProductsFromCSV(file){
     }
     const fields = {
       title,
-      price: Number(priceRaw) || 0,
+      price: idx.price !== undefined ? parsePriceInput(r[idx.price]) : 0,
       category: categoryKey,
       subcategory: subcategoryKey,
       style_tag: idx.style !== undefined ? (r[idx.style] ?? "").trim() || null : null,
