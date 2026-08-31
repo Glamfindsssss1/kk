@@ -1836,6 +1836,55 @@ const AFFILIATE_AGENTS = {
 // (und damit nicht löschbar), auch falls ein DB-Eintrag denselben Kürzel wiederverwendet.
 const BUILTIN_AFFILIATE_AGENT_KEYS = Object.keys(AFFILIATE_AGENTS);
 
+/**
+ * Leitet aus 2 echten Links (Registrierungslink mit Code + Beispiel-Produktlink
+ * mit demselben Code) alle Felder für einen neuen Affiliate-Agenten her:
+ * Kürzel/Anzeigename aus dem Host, Code-Parameter aus dem Registrierungslink
+ * (dort wird er auch beim späteren Auslesen des Creator-Links gesucht — siehe
+ * parseCreatorRegisterLink), Produkt-Link-Vorlage durch Ersetzen von Item-ID
+ * und Code im Produktlink durch {ITEM_ID}/{CODE}.
+ * Gibt bei Problemen { error } zurück, sonst die fertigen Felder.
+ */
+function detectAgentFromLinks(registerLink, productLink){
+  let regUrl, prodUrl;
+  try { regUrl = new URL(registerLink); } catch { return { error: "Registrierungslink ist keine gültige URL." }; }
+  try { prodUrl = new URL(productLink); } catch { return { error: "Produktlink ist keine gültige URL." }; }
+  if(regUrl.hostname.replace(/^www\./,"") !== prodUrl.hostname.replace(/^www\./,"")){
+    return { error: "Beide Links müssen vom selben Anbieter (gleicher Host) sein." };
+  }
+
+  const regParams = [...regUrl.searchParams.entries()];
+  if(!regParams.length || !regParams[0][1]){
+    return { error: "Im Registrierungslink wurde kein Code-Parameter gefunden (z.B. ?invite_code=DEINCODE)." };
+  }
+  const [codeParam, code] = regParams[0];
+
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const tokenRe = (token) => new RegExp(`(?<=[=/])${esc(token)}(?=[&?/]|$)`, "g");
+
+  if(!tokenRe(code).test(productLink)){
+    return { error: `Der Code „${code}" aus dem Registrierungslink taucht im Produktlink nicht auf.` };
+  }
+
+  const numTokens = productLink.match(/(?<=[=/])\d{6,}(?=[&?/]|$)/g) || [];
+  const itemIdCandidates = numTokens.filter(t => t !== code);
+  if(!itemIdCandidates.length){
+    return { error: "Im Produktlink wurde keine Weidian-Item-ID (mind. 6 Ziffern) gefunden." };
+  }
+  const itemId = itemIdCandidates.reduce((a,b) => b.length > a.length ? b : a);
+
+  const product_url_template = productLink
+    .replace(tokenRe(itemId), "{ITEM_ID}")
+    .replace(tokenRe(code), "{CODE}");
+
+  const host = regUrl.hostname.replace(/^www\./, "");
+  const rawKey = (host.split(".")[0] || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const agent_key = rawKey || ("agent" + Date.now());
+  const display_name = rawKey ? rawKey.charAt(0).toUpperCase() + rawKey.slice(1) : agent_key;
+
+  return { agent_key, display_name, register_host_pattern: host, code_param: codeParam, product_url_template };
+}
+
 // Admin-verwaltete Agenten (Tabelle affiliate_agents) werden hier reingemischt —
 // so kann man im Admin-Bereich neue Agenten anlegen, ohne Code zu ändern.
 // Gleicher agent_key wie ein fest einprogrammierter Agent überschreibt diesen.
@@ -4448,18 +4497,42 @@ function renderDashboard(){
                 </div>
               </div>`).join("")}
           </div>
-          <form id="agentForm" class="a-grid">
-            <div><label class="a-label" for="agent-key">Kürzel *</label><input id="agent-key" class="a-field" required placeholder="mulebuy"></div>
-            <div><label class="a-label" for="agent-name">Anzeigename *</label><input id="agent-name" class="a-field" required placeholder="MuleBuy"></div>
-            <div><label class="a-label" for="agent-host">Host im Registrierungslink *</label><input id="agent-host" class="a-field" required placeholder="mulebuy.com"></div>
-            <div><label class="a-label" for="agent-codeparam">Code-Parameter</label><input id="agent-codeparam" class="a-field" placeholder="inviteCode (Standard)"></div>
-            <div class="a-full">
-              <label class="a-label" for="agent-template">Produkt-Link-Vorlage *</label>
-              <input id="agent-template" class="a-field" required placeholder="https://mulebuy.com/product/weidian/{ITEM_ID}?ref={CODE}">
-              <p class="a-hint">{ITEM_ID} und {CODE} werden automatisch ersetzt.</p>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px;align-items:start">
+            <div class="a-block" style="background:#f7f8fa;border-radius:12px;padding:14px 16px">
+              <p class="a-block-title" style="margin-top:0">Automatisch anlegen</p>
+              <p class="a-hint" style="margin:0 0 12px">
+                Nur 2 echte Links vom Anbieter einfügen — Kürzel, Host, Code-Parameter und
+                Produkt-Link-Vorlage werden daraus erkannt und der Agent wird direkt gespeichert.
+              </p>
+              <form id="agentAutoForm" class="a-grid">
+                <div class="a-full">
+                  <label class="a-label" for="agent-auto-register">Registrierungslink (mit deinem Code)</label>
+                  <input id="agent-auto-register" class="a-field" required placeholder="https://www.lovegobuy.com/?invite_code=RCOPOO">
+                </div>
+                <div class="a-full">
+                  <label class="a-label" for="agent-auto-product">Beispiel-Produktlink (mit deinem Code)</label>
+                  <input id="agent-auto-product" class="a-field" required placeholder="https://www.lovegobuy.com/product?id=7845175156&shop_type=weidian&invite_code=RCOPOO">
+                </div>
+                <div class="a-actions"><button class="a-btn a-btn-primary">Automatisch anlegen</button></div>
+              </form>
             </div>
-            <div class="a-actions"><button class="a-btn a-btn-primary">Agent anlegen</button></div>
-          </form>
+
+            <div class="a-block">
+              <p class="a-block-title" style="margin-top:0">Manuell anlegen</p>
+              <form id="agentForm" class="a-grid">
+                <div><label class="a-label" for="agent-key">Kürzel *</label><input id="agent-key" class="a-field" required placeholder="mulebuy"></div>
+                <div><label class="a-label" for="agent-name">Anzeigename *</label><input id="agent-name" class="a-field" required placeholder="MuleBuy"></div>
+                <div><label class="a-label" for="agent-host">Host im Registrierungslink *</label><input id="agent-host" class="a-field" required placeholder="mulebuy.com"></div>
+                <div><label class="a-label" for="agent-codeparam">Code-Parameter</label><input id="agent-codeparam" class="a-field" placeholder="inviteCode (Standard)"></div>
+                <div class="a-full">
+                  <label class="a-label" for="agent-template">Produkt-Link-Vorlage *</label>
+                  <input id="agent-template" class="a-field" required placeholder="https://mulebuy.com/product/weidian/{ITEM_ID}?ref={CODE}">
+                  <p class="a-hint">{ITEM_ID} und {CODE} werden automatisch ersetzt.</p>
+                </div>
+                <div class="a-actions"><button class="a-btn a-btn-primary">Agent anlegen</button></div>
+              </form>
+            </div>
+          </div>
         </div>` : ""}
 
         <form id="creatorForm" class="a-grid" style="display:none;margin-top:22px;border-top:1px solid #eff1f4;padding-top:22px">
@@ -7519,6 +7592,29 @@ function wireDashboard(){
   });
 
   // ---- Affiliate-Agenten ----
+  const agentAutoForm = document.getElementById("agentAutoForm");
+  if(agentAutoForm) agentAutoForm.onsubmit = async (e)=>{
+    e.preventDefault();
+    const registerLink = document.getElementById("agent-auto-register").value.trim();
+    const productLink   = document.getElementById("agent-auto-product").value.trim();
+    const result = detectAgentFromLinks(registerLink, productLink);
+    if(result.error) return atoast(result.error, "err");
+
+    const last = state.affiliateAgents.reduce((m,a)=> Math.max(m, a.sort_order ?? 0), 0);
+    const { error } = await sb.from("affiliate_agents").insert({
+      agent_key: result.agent_key,
+      display_name: result.display_name,
+      register_host_pattern: result.register_host_pattern,
+      code_param: result.code_param,
+      product_url_template: result.product_url_template,
+      sort_order: last + 10
+    });
+    if(error) return atoast(error.code === "23505" ? `„${result.agent_key}" gibt es schon.` : error.message, "err");
+    atoast(`„${result.display_name}" automatisch angelegt.`);
+    agentAutoForm.reset();
+    refresh();
+  };
+
   const agentForm = document.getElementById("agentForm");
   if(agentForm) agentForm.onsubmit = async (e)=>{
     e.preventDefault();
