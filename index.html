@@ -1831,6 +1831,11 @@ const AFFILIATE_AGENTS = {
   // mulebuy: { registerHostPattern: "mulebuy.com", productUrlTemplate: "...", displayName: "MuleBuy" },
 };
 
+// Schnappschuss der Kürzel, BEVOR admin-verwaltete Agenten reingemischt werden —
+// so weiss die Admin-Oberfläche dauerhaft, welche 4 fest einprogrammiert sind
+// (und damit nicht löschbar), auch falls ein DB-Eintrag denselben Kürzel wiederverwendet.
+const BUILTIN_AFFILIATE_AGENT_KEYS = Object.keys(AFFILIATE_AGENTS);
+
 // Admin-verwaltete Agenten (Tabelle affiliate_agents) werden hier reingemischt —
 // so kann man im Admin-Bereich neue Agenten anlegen, ohne Code zu ändern.
 // Gleicher agent_key wie ein fest einprogrammierter Agent überschreibt diesen.
@@ -4417,7 +4422,21 @@ function renderDashboard(){
             Weidian-Produktlinks automatisch zu diesem Anbieter umgewandelt.
           </p>
           <div class="a-list" id="agentList" style="margin-bottom:14px">
-            ${state.affiliateAgents.length ? state.affiliateAgents.map(a => `
+            ${BUILTIN_AFFILIATE_AGENT_KEYS.map(key => {
+              const cfg = AFFILIATE_AGENTS[key];
+              return `
+              <div class="a-row">
+                <div class="a-row-main">
+                  <div class="a-row-title">${aesc(cfg.displayName)} <span style="color:#9aa1ac;font-weight:400">(${aesc(key)})</span></div>
+                  <div class="a-hint" style="margin:2px 0 0">Host: ${aesc(cfg.registerHostPattern)} · Code-Parameter: ${aesc(cfg.codeParam || "inviteCode")}</div>
+                  <div class="a-hint" style="margin:2px 0 0;word-break:break-all">${aesc(cfg.productUrlTemplate)}</div>
+                </div>
+                <div class="a-tools">
+                  <span class="a-chip-lock" title="Fest einprogrammiert, nicht löschbar">fest</span>
+                </div>
+              </div>`;
+            }).join("")}
+            ${state.affiliateAgents.map(a => `
               <div class="a-row" data-id="${aesc(a.id)}">
                 <div class="a-row-main">
                   <div class="a-row-title">${aesc(a.display_name)} <span style="color:#9aa1ac;font-weight:400">(${aesc(a.agent_key)})</span></div>
@@ -4427,8 +4446,7 @@ function renderDashboard(){
                 <div class="a-tools">
                   <button class="a-icon a-icon-del" data-delagent="${aesc(a.id)}" aria-label="${aesc(a.display_name)} löschen">✕</button>
                 </div>
-              </div>`).join("")
-            : `<p class="a-empty">Noch keine eigenen Agenten — die 4 fest einprogrammierten (OopBuy, HipoBuy, LitBuy, USfans) laufen unabhängig davon weiter.</p>`}
+              </div>`).join("")}
           </div>
           <form id="agentForm" class="a-grid">
             <div><label class="a-label" for="agent-key">Kürzel *</label><input id="agent-key" class="a-field" required placeholder="mulebuy"></div>
