@@ -3973,32 +3973,26 @@ async function importProductsFromCSV(file){
 async function loadProducts(creatorId){
   if(creatorId === ALL_CREATOR_ID){
     // "Alle Creator"-Ansicht: eine Zeile pro Gruppe, nicht pro echter Kopie —
-    // sonst wuerde ein Gruppen-Produkt bei 5 Creatorn 5x in der Liste auftauchen.
-    const { data, error } = await sb.from("products").select("*")
-      .not("group_id", "is", null)
-      .order("sort_order", { ascending:true })
-      .order("created_at", { ascending:false });
+    // sonst wuerde ein Gruppen-Produkt bei 100 Creatorn 100x in der Liste
+    // auftauchen. Die Dedupe passiert ueber die RPC-Funktion get_grouped_products
+    // SERVERSEITIG (SQL DISTINCT ON) statt hier: bei vielen Creatorn mit
+    // geteiltem Katalog waeren sonst ALLE echten Kopien (z.B. 700.000 Zeilen
+    // bei 100 Creatorn x 7.000 Produkten) erst komplett uebers Netz geladen
+    // worden, nur um sie clientseitig wieder auf ~7.000 zu reduzieren.
+    const { data, error } = await sb.rpc("get_grouped_products");
 
     if(error){
-      // Fehlt die Spalte group_id noch (Migration nicht ausgefuehrt), kaeme hier
-      // sonst eine leere Liste ohne jede Erklaerung zustande — lieber deutlich sagen, woran es liegt.
-      atoast(/group_id/i.test(error.message || "")
-        ? "Die Gruppen-Funktion fehlt noch in der Datenbank (Spalte group_id). Siehe Hinweis im Chat."
+      // Fehlt die Funktion/Spalte group_id noch (Migration nicht ausgefuehrt),
+      // kaeme hier sonst eine leere Liste ohne jede Erklaerung zustande.
+      atoast(/group_id|get_grouped_products/i.test(error.message || "")
+        ? "Die Gruppen-Funktion fehlt noch in der Datenbank. Siehe Hinweis im Chat."
         : error.message, "err");
       groupCounts = new Map();
       return [];
     }
 
-    groupCounts = new Map();
-    const seen = new Set();
-    const groups = [];
-    for(const p of (data ?? [])){
-      groupCounts.set(p.group_id, (groupCounts.get(p.group_id) ?? 0) + 1);
-      if(seen.has(p.group_id)) continue;
-      seen.add(p.group_id);
-      groups.push(p);
-    }
-    return groups;
+    groupCounts = new Map((data ?? []).map(p => [p.group_id, Number(p.copy_count)]));
+    return data ?? [];
   }
   const { data } = await sb.from("products").select("*")
     .eq("creator_id", creatorId)
@@ -7454,15 +7448,12 @@ function wireDashboard(){
       const { error: catCopyErr } = await sb.rpc("apply_default_categories_to_creator", { target_creator_id: newCreatorId });
       if(catCopyErr) atoast(`Creator angelegt, aber Standard-Kategorien konnten nicht kopiert werden: ${catCopyErr.message}`, "err");
 
-      const { data: groupSource } = await sb.from("products").select("*").not("group_id", "is", null);
-      const seen = new Set();
-      const templates = [];
-      (groupSource ?? []).forEach(p => {
-        if(seen.has(p.group_id)) return;
-        seen.add(p.group_id);
-        templates.push(p);
-      });
-      if(templates.length){
+      // Ueber dieselbe RPC wie loadProducts(ALL_CREATOR_ID) -- dedupliziert
+      // serverseitig, statt bei vielen Creatorn/Produkten (z.B. 100 Creator x
+      // 7.000 Produkte = 700.000 Zeilen) erst alle Kopien komplett zu laden,
+      // nur um sie hier wieder auf die eindeutigen Gruppen zu reduzieren.
+      const { data: templates } = await sb.rpc("get_grouped_products");
+      if(templates?.length){
         const rows = templates.map((p, i) => ({
           creator_id: newCreatorId,
           group_id: p.group_id,
@@ -7475,7 +7466,13 @@ function wireDashboard(){
           is_trend: p.is_trend,
           sort_order: (i + 1) * 10
         }));
-        const { error: copyErr } = await sb.from("products").insert(rows);
+        // In Portionen, aus demselben Grund wie beim CSV-Import: bei sehr
+        // vielen gemeinsamen Produkten waere ein einzelner Insert mit
+        // tausenden Zeilen ein unnoetig grosser Request.
+        let copyErr = null;
+        for(let i = 0; i < rows.length && !copyErr; i += 500){
+          ({ error: copyErr } = await sb.from("products").insert(rows.slice(i, i + 500)));
+        }
         if(copyErr) atoast(`Creator angelegt, aber gemeinsame Produkte konnten nicht kopiert werden: ${copyErr.message}`, "err");
       }
     }
