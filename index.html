@@ -2869,8 +2869,19 @@ function renderProducts(){
   }
 }
 
-function update(){
-  const isHome = !viewAll && !wishOnly && activeCat === "all" && activeStyle === "ALL";
+async function update(){
+  let isHome = !viewAll && !wishOnly && activeCat === "all" && activeStyle === "ALL";
+  if(!isHome && !productsFullyLoaded){
+    // Nicht-Home-Ansichten (Kategorie/Style/Suche/"Alle ansehen") brauchen den
+    // vollstaendigen Katalog fuer korrekte Filterung/Staffelung. Laeuft der
+    // Hintergrund-Nachladevorgang (siehe loadRemainingProducts) noch, kurz
+    // darauf warten (in der Praxis meist deutlich unter 1s) statt mit
+    // unvollstaendigen Daten zu rendern.
+    await productsFullLoadPromise;
+    // Waehrend des Wartens koennte der Nutzer laengst zurueck zur Startseite
+    // gewechselt haben — dann bleibt es dabei, kein verspätetes Umschalten.
+    isHome = !viewAll && !wishOnly && activeCat === "all" && activeStyle === "ALL";
+  }
   const singleSectionWrap = document.getElementById("singleSectionWrap");
   collectionsRoot.hidden = !isHome;
   singleSectionWrap.hidden = isHome;
@@ -8324,16 +8335,24 @@ async function loadData(){
 
   // Nur falls die erste Seite voll war (also potenziell mehr existiert) --
   // laeuft bewusst OHNE await weiter: soll den ersten Seitenaufbau nicht
-  // verzoegern. Haengt PRODUCTS im Hintergrund an; jede Filterung/Suche/
-  // Staffelung, die danach ausgeloest wird (Kategorie-Klick, Suche, "Alle
-  // ansehen" ...), sieht dann automatisch den vollstaendigen Katalog, ohne
-  // dass hier extra ein Re-Render angestossen werden muss.
+  // verzoegern. Haengt PRODUCTS im Hintergrund an. productsFullLoadPromise
+  // laesst update() bei Bedarf kurz warten, statt mit unvollstaendigen Daten
+  // zu rendern (z.B. wenn direkt nach dem Laden schon eine Kategorie ohne
+  // aktiven Style-Filter angeklickt wird, bevor der Rest da ist).
   if((prods ?? []).length === PRODUCTS_PAGE_SIZE){
+    productsFullyLoaded = false;
+    productsFullLoadPromise = new Promise(res => { productsFullLoadResolve = res; });
     loadRemainingProducts(CREATOR_ROW.id, PRODUCTS_PAGE_SIZE);
+  } else {
+    productsFullyLoaded = true;
+    productsFullLoadPromise = Promise.resolve();
   }
 }
 
 const PRODUCTS_PAGE_SIZE = 300;
+let productsFullyLoaded = true;
+let productsFullLoadResolve = null;
+let productsFullLoadPromise = Promise.resolve();
 
 function mapProductRow(p){
   return {
@@ -8352,6 +8371,14 @@ function mapProductRow(p){
 }
 
 async function loadRemainingProducts(creatorId, fromOffset){
+  // Markiert bei JEDEM Ausstieg (Fehler, fertig, Creator zwischenzeitlich
+  // gewechselt) den Ladevorgang als abgeschlossen und weckt update() auf,
+  // falls es gerade darauf wartet -- sonst wuerde eine Nicht-Home-Ansicht bei
+  // einem Fehler/Abbruch permanent haengen bleiben.
+  function finish(){
+    if(CREATOR_ROW && CREATOR_ROW.id === creatorId) productsFullyLoaded = true;
+    productsFullLoadResolve?.();
+  }
   let offset = fromOffset;
   for(;;){
     const { data, error } = await sb.from("products").select("*")
@@ -8360,12 +8387,12 @@ async function loadRemainingProducts(creatorId, fromOffset){
       .order("sort_order", { ascending:true })
       .order("created_at", { ascending:false })
       .range(offset, offset + PRODUCTS_PAGE_SIZE - 1);
-    if(error || !data || !data.length) return;
+    if(error || !data || !data.length) return finish();
     // Falls sich der Creator zwischenzeitlich geaendert hat (schneller Wechsel
     // ueber die URL), diese veralteten Nachlade-Ergebnisse verwerfen.
-    if(!CREATOR_ROW || CREATOR_ROW.id !== creatorId) return;
+    if(!CREATOR_ROW || CREATOR_ROW.id !== creatorId) return finish();
     PRODUCTS.push(...data.map(mapProductRow));
-    if(data.length < PRODUCTS_PAGE_SIZE) return;
+    if(data.length < PRODUCTS_PAGE_SIZE) return finish();
     offset += PRODUCTS_PAGE_SIZE;
   }
 }
