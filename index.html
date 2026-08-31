@@ -6199,10 +6199,28 @@ async function renderRevenue(){
   // Demo-Daten verwendet und das "Vorschau"-Badge verschwindet automatisch.
   // Ohne echte Daten (Tabelle leer / noch keine Synchronisierung gelaufen)
   // bleibt alles exakt beim bisherigen Demo-Verhalten.
-  const { data: realOrdersRaw } = await sb.from("weidian_orders")
+  //
+  // Der Zeitraum-Filter (revenuePeriod) wird HIER schon in die Abfrage
+  // eingebaut, statt erst nachtraeglich clientseitig zu filtern -- ohne das
+  // wurde frueher pauschal auf die letzten 500 Zeilen begrenzt. Bei "Gesamt"
+  // (kein Zeitraum-Cutoff) reichte das nicht mehr aus, sobald mehr als 500
+  // Bestellungen insgesamt vorliegen (aktuell z.B. 1094) -- "Gesamt" zeigte
+  // dadurch einen zu NIEDRIGEN Umsatz, weil aeltere Bestellungen jenseits der
+  // 500 stillschweigend fehlten. Fuer feste Zeitraeume (24h/7d/30d) filtert
+  // jetzt direkt die Datenbank nach Datum, das braucht kein hartes Zeilen-Limit
+  // mehr; nur "Gesamt" bekommt eine grosszuegige Obergrenze als Sicherheitsnetz.
+  const periodDaysForFetch = { "24h": 1, "7d": 7, "30d": 30, all: null }[revenuePeriod];
+  const fetchCutoffIso = periodDaysForFetch === null
+    ? null
+    : new Date(resetDayStartMs(Date.now()) - (periodDaysForFetch-1) * 24*3600*1000).toISOString();
+
+  let realOrdersQuery = sb.from("weidian_orders")
     .select("weidian_order_id, weidian_shop_id, title, image_url, price, status, order_date")
-    .order("order_date", { ascending: false })
-    .limit(500);
+    .order("order_date", { ascending: false });
+  realOrdersQuery = fetchCutoffIso
+    ? realOrdersQuery.gte("order_date", fetchCutoffIso)
+    : realOrdersQuery.limit(5000);
+  const { data: realOrdersRaw } = await realOrdersQuery;
   const hasRealData = Array.isArray(realOrdersRaw) && realOrdersRaw.length > 0;
 
   // Fest verdrahtete Beispieldaten, rein fuers Layout — kein Bezug zu echten Shops.
