@@ -1831,6 +1831,21 @@ const AFFILIATE_AGENTS = {
   // mulebuy: { registerHostPattern: "mulebuy.com", productUrlTemplate: "...", displayName: "MuleBuy" },
 };
 
+// Admin-verwaltete Agenten (Tabelle affiliate_agents) werden hier reingemischt —
+// so kann man im Admin-Bereich neue Agenten anlegen, ohne Code zu ändern.
+// Gleicher agent_key wie ein fest einprogrammierter Agent überschreibt diesen.
+function applyDbAffiliateAgents(rows){
+  (rows || []).forEach(r => {
+    if(!r.agent_key) return;
+    AFFILIATE_AGENTS[r.agent_key] = {
+      registerHostPattern: r.register_host_pattern,
+      productUrlTemplate:  r.product_url_template,
+      codeParam:           r.code_param || "inviteCode",
+      displayName:         r.display_name || r.agent_key
+    };
+  });
+}
+
 /** Extrahiert die Weidian-itemID aus Desktop- und Mobile-URLs. */
 function extractWeidianItemId(url) {
   if (!url) return null;
@@ -3171,6 +3186,13 @@ async function loadSiteSettings(){
   if(data) siteSettings = data;
 }
 
+// Affiliate-Agenten (z.B. USfans, OopBuy) — im Admin verwaltbar, ohne Codeänderung.
+async function loadAffiliateAgents(){
+  const { data } = await sb.from("affiliate_agents").select("*").order("sort_order");
+  state.affiliateAgents = data ?? [];
+  applyDbAffiliateAgents(state.affiliateAgents);
+}
+
 // Zeigt im Creator-Formular an, was greift, solange das Feld leer bleibt —
 // so ist der Unterschied zwischen "erbt Standard" und "eigener Wert" sichtbar,
 // ohne dass man raten muss.
@@ -3497,7 +3519,7 @@ function closeAdmin(){
 const ALL_CREATOR_ID = "__ALL__";
 
 const app = document.getElementById("adminRoot");
-let state = { user:null, isAdmin:false, creators:[], activeId:null, products:[], categories:[], styles:[], subcategories:[], busy:false };
+let state = { user:null, isAdmin:false, creators:[], activeId:null, products:[], categories:[], styles:[], subcategories:[], affiliateAgents:[], busy:false };
 let editingProductId = null; // Produkt-ID der gerade aufgeklappten Bearbeiten-Zeile, oder null
 
 // Anzahl Kopien pro group_id, nur relevant/befuellt in der "Alle Creator"-Ansicht —
@@ -3555,6 +3577,7 @@ async function refresh(){
       }
       await loadCategoriesFor(state.activeId);
       await loadSiteSettings();
+      await loadAffiliateAgents();
       state.products = state.activeId ? await loadProducts(state.activeId) : [];
     }
     render();
@@ -4384,6 +4407,41 @@ function renderDashboard(){
           <div style="margin-top:14px">
             <button type="button" class="a-btn a-btn-primary" id="s-howtosave">Standard speichern</button>
           </div>
+        </div>
+
+        <div class="a-block" style="margin-top:22px;border-top:1px solid #eff1f4;padding-top:22px">
+          <p class="a-block-title">Affiliate-Agenten</p>
+          <p class="a-hint" style="margin:0 0 14px">
+            Neue Anbieter (wie USfans, OopBuy) selbst anlegen, ohne dass dafür Code geändert werden muss.
+            Trägt ein Creator hinterher dessen Registrierungslink im Affiliate-Button ein, werden all seine
+            Weidian-Produktlinks automatisch zu diesem Anbieter umgewandelt.
+          </p>
+          <div class="a-list" id="agentList" style="margin-bottom:14px">
+            ${state.affiliateAgents.length ? state.affiliateAgents.map(a => `
+              <div class="a-row" data-id="${aesc(a.id)}">
+                <div class="a-row-main">
+                  <div class="a-row-title">${aesc(a.display_name)} <span style="color:#9aa1ac;font-weight:400">(${aesc(a.agent_key)})</span></div>
+                  <div class="a-hint" style="margin:2px 0 0">Host: ${aesc(a.register_host_pattern)} · Code-Parameter: ${aesc(a.code_param)}</div>
+                  <div class="a-hint" style="margin:2px 0 0;word-break:break-all">${aesc(a.product_url_template)}</div>
+                </div>
+                <div class="a-tools">
+                  <button class="a-icon a-icon-del" data-delagent="${aesc(a.id)}" aria-label="${aesc(a.display_name)} löschen">✕</button>
+                </div>
+              </div>`).join("")
+            : `<p class="a-empty">Noch keine eigenen Agenten — die 4 fest einprogrammierten (OopBuy, HipoBuy, LitBuy, USfans) laufen unabhängig davon weiter.</p>`}
+          </div>
+          <form id="agentForm" class="a-grid">
+            <div><label class="a-label" for="agent-key">Kürzel *</label><input id="agent-key" class="a-field" required placeholder="mulebuy"></div>
+            <div><label class="a-label" for="agent-name">Anzeigename *</label><input id="agent-name" class="a-field" required placeholder="MuleBuy"></div>
+            <div><label class="a-label" for="agent-host">Host im Registrierungslink *</label><input id="agent-host" class="a-field" required placeholder="mulebuy.com"></div>
+            <div><label class="a-label" for="agent-codeparam">Code-Parameter</label><input id="agent-codeparam" class="a-field" placeholder="inviteCode (Standard)"></div>
+            <div class="a-full">
+              <label class="a-label" for="agent-template">Produkt-Link-Vorlage *</label>
+              <input id="agent-template" class="a-field" required placeholder="https://mulebuy.com/product/weidian/{ITEM_ID}?ref={CODE}">
+              <p class="a-hint">{ITEM_ID} und {CODE} werden automatisch ersetzt.</p>
+            </div>
+            <div class="a-actions"><button class="a-btn a-btn-primary">Agent anlegen</button></div>
+          </form>
         </div>` : ""}
 
         <form id="creatorForm" class="a-grid" style="display:none;margin-top:22px;border-top:1px solid #eff1f4;padding-top:22px">
@@ -7442,6 +7500,40 @@ function wireDashboard(){
     refresh();
   });
 
+  // ---- Affiliate-Agenten ----
+  const agentForm = document.getElementById("agentForm");
+  if(agentForm) agentForm.onsubmit = async (e)=>{
+    e.preventDefault();
+    const agent_key = document.getElementById("agent-key").value.trim()
+      .toLowerCase().replace(/[^a-z0-9]+/g, "");
+    const display_name = document.getElementById("agent-name").value.trim();
+    const register_host_pattern = document.getElementById("agent-host").value.trim().toLowerCase();
+    const product_url_template = document.getElementById("agent-template").value.trim();
+    const code_param = document.getElementById("agent-codeparam").value.trim() || "inviteCode";
+    if(!agent_key || !display_name || !register_host_pattern || !product_url_template) return;
+    if(!product_url_template.includes("{ITEM_ID}")){
+      return atoast("Die Vorlage muss {ITEM_ID} enthalten.", "err");
+    }
+    const last = state.affiliateAgents.reduce((m,a)=> Math.max(m, a.sort_order ?? 0), 0);
+    const { error } = await sb.from("affiliate_agents").insert({
+      agent_key, display_name, register_host_pattern, product_url_template, code_param,
+      sort_order: last + 10
+    });
+    if(error) return atoast(error.code === "23505" ? `Kürzel „${agent_key}" gibt es schon.` : error.message, "err");
+    atoast("Agent angelegt.");
+    agentForm.reset();
+    refresh();
+  };
+
+  document.querySelectorAll("[data-delagent]").forEach(btn => btn.onclick = async ()=>{
+    const a = state.affiliateAgents.find(x => x.id === btn.dataset.delagent);
+    if(!confirm(`Agent „${a.display_name}" löschen?`)) return;
+    const { error } = await sb.from("affiliate_agents").delete().eq("id", a.id);
+    if(error) return atoast(error.message, "err");
+    atoast("Agent gelöscht.");
+    refresh();
+  });
+
   // ---- Unterkategorien ----
   const subcatParentEl = document.getElementById("subcat-parent");
   if(subcatParentEl) subcatParentEl.onchange = ()=>{
@@ -7789,6 +7881,13 @@ async function loadData(){
   CREATOR.instagramUrl = CREATOR_ROW.instagram || CREATOR_DEFAULTS.instagramUrl;
   CREATOR.promoLine1   = CREATOR_ROW.discount  || CREATOR_DEFAULTS.promoLine1;
   CREATOR.loginUrl     = CREATOR_ROW.promo_url || "#";
+
+  // Zusätzliche, im Admin-Bereich angelegte Agenten reinladen (falls RLS/Netz
+  // mal Probleme macht, bleiben zumindest die 4 fest einprogrammierten nutzbar).
+  try {
+    const { data: dbAgents } = await sb.from("affiliate_agents").select("*");
+    applyDbAffiliateAgents(dbAgents);
+  } catch(e){ console.warn("affiliate_agents laden fehlgeschlagen:", e); }
 
   // Affiliate-Agent: einmal aus dem Registrierungslink parsen,
   // gilt danach für alle Kaufen-Buttons auf dieser Seite.
