@@ -6551,7 +6551,18 @@ function wireDragReorder(){
       speed = AUTOSCROLL_MAX_SPEED * (1 - (vh - lastClientY) / AUTOSCROLL_EDGE);
     }
     if(speed !== 0 && scrollEl){
+      const before = scrollEl.scrollTop;
       scrollEl.scrollBy(0, speed);
+      const actualDelta = scrollEl.scrollTop - before;
+      if(actualDelta !== 0){
+        // Die gezogene Karte soll optisch am Mauszeiger "kleben" bleiben,
+        // waehrend der Rest der Liste darunter wegscrollt -- pointerStartY um
+        // genau den TATSAECHLICHEN Scroll-Betrag nachziehen (nicht die Soll-
+        // Geschwindigkeit, sonst driftet die Karte am Rand des Scrollbereichs
+        // auseinander, wo scrollBy weniger bewegt als angefragt).
+        pointerStartY -= actualDelta;
+        dragRow.style.transform = `translateY(${lastClientY - pointerStartY}px)`;
+      }
       checkSwap();
     }
     autoScrollRAF = requestAnimationFrame(autoScrollStep);
