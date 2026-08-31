@@ -4682,6 +4682,13 @@ function renderDashboard(){
             <input id="p-style" class="a-field" list="styles" placeholder="OLDMONEY">
             <datalist id="styles">${state.styles.map(s=>`<option value="${aesc(s.label)}">`).join("")}</datalist>
           </div>
+          <div>
+            <label class="a-label" for="p-position">Position</label>
+            <select id="p-position" class="a-field">
+              <option value="bottom">Unten anhängen</option>
+              <option value="top">Oben anhängen</option>
+            </select>
+          </div>
 
           <div class="a-full">
             <label class="a-label" for="p-file">Produktbild</label>
@@ -7737,6 +7744,7 @@ function wireDashboard(){
     btn.disabled = true;
     btn.textContent = "Speichert …";
     const url = document.getElementById("p-url").value.trim();
+    const position = document.getElementById("p-position").value; // "top" oder "bottom"
 
     // Klammer-Kurzschreibweise im Titel, z.B. "Ralph Lauren Decke (-30%)":
     // wird als Rabatt-Badge herausgelöst und aus dem Titel entfernt, fest in
@@ -7769,18 +7777,23 @@ function wireDashboard(){
           return atoast("Noch kein Creator vorhanden — leg oben erst einen an.", "err");
         }
         // Eine group_id verbindet alle Kopien dieser Aktion; sort_order wird pro
-        // Ziel-Creator einzeln ans Ende seiner eigenen Liste gehaengt, nicht global.
+        // Ziel-Creator einzeln an den Anfang oder ans Ende seiner eigenen Liste
+        // gehaengt (je nach "Position"-Auswahl), nicht global.
         const groupId = crypto.randomUUID();
         const { data: existing } = await sb.from("products").select("creator_id, sort_order");
         const lastByCreator = new Map();
+        const firstByCreator = new Map();
         (existing ?? []).forEach(p => {
           lastByCreator.set(p.creator_id, Math.max(lastByCreator.get(p.creator_id) ?? 0, p.sort_order ?? 0));
+          firstByCreator.set(p.creator_id, Math.min(firstByCreator.get(p.creator_id) ?? 0, p.sort_order ?? 0));
         });
         const rows = state.creators.map(c => ({
           ...baseFields,
           creator_id: c.id,
           group_id: groupId,
-          sort_order: (lastByCreator.get(c.id) ?? 0) + 10
+          sort_order: position === "top"
+            ? (firstByCreator.get(c.id) ?? 0) - 10
+            : (lastByCreator.get(c.id) ?? 0) + 10
         }));
         ({ error } = await sb.from("products").insert(rows));
 
@@ -7798,11 +7811,13 @@ function wireDashboard(){
           atoast(`Produkt bei ${rows.length} ${rows.length === 1 ? "Creator" : "Creatorn"} angelegt.`);
         }
       } else {
-        const last = state.products.reduce((m,p)=> Math.max(m, p.sort_order ?? 0), 0);
+        const sort_order = position === "top"
+          ? state.products.reduce((m,p)=> Math.min(m, p.sort_order ?? 0), 0) - 10
+          : state.products.reduce((m,p)=> Math.max(m, p.sort_order ?? 0), 0) + 10;
         ({ error } = await sb.from("products").insert({
           ...baseFields,
           creator_id: state.activeId,
-          sort_order: last + 10
+          sort_order
         }));
         if(!error) atoast("Produkt gespeichert.");
       }
