@@ -6494,11 +6494,71 @@ function wireDragReorder(){
   const list = document.getElementById("list");
   if(!list) return;
 
+  // Der Admin-Bereich ist ein position:fixed-Vollbild-Container mit eigenem
+  // Scroll (#adminRoot) -- nicht die normale Seite. Auto-Scroll beim Ziehen
+  // an den Rand muss deshalb diesen Container scrollen, window.scrollBy
+  // haette hier keine Wirkung.
+  const scrollEl = document.getElementById("adminRoot") || document.scrollingElement;
+
   let dragRow = null, dragId = null, pointerStartY = 0, rowHeight = 0, moved = false;
+  let lastClientY = 0, autoScrollRAF = null;
+
+  const AUTOSCROLL_EDGE = 90;      // px vom oberen/unteren Bildschirmrand, ab dem gescrollt wird
+  const AUTOSCROLL_MAX_SPEED = 16; // px pro Frame, direkt am Rand
 
   function rowsInList(){ return Array.from(list.querySelectorAll(":scope > .a-row")); }
 
+  function checkSwap(){
+    if(!dragRow) return;
+    const dragRect = dragRow.getBoundingClientRect();
+    const dragMid = dragRect.top + dragRect.height / 2;
+
+    const prev = dragRow.previousElementSibling;
+    if(prev && prev.classList.contains("a-row")){
+      const r = prev.getBoundingClientRect();
+      if(dragMid < r.top + r.height / 2){
+        const beforeTop = dragRow.getBoundingClientRect().top;
+        list.insertBefore(dragRow, prev);
+        const afterTop = dragRow.getBoundingClientRect().top;
+        pointerStartY += (afterTop - beforeTop);
+        dragRow.style.transform = `translateY(${lastClientY - pointerStartY}px)`;
+      }
+    }
+    const next = dragRow.nextElementSibling;
+    if(next && next.classList.contains("a-row")){
+      const r = next.getBoundingClientRect();
+      if(dragMid > r.top + r.height / 2){
+        const beforeTop = dragRow.getBoundingClientRect().top;
+        list.insertBefore(dragRow, next.nextElementSibling);
+        const afterTop = dragRow.getBoundingClientRect().top;
+        pointerStartY += (afterTop - beforeTop);
+        dragRow.style.transform = `translateY(${lastClientY - pointerStartY}px)`;
+      }
+    }
+  }
+
+  // Laeuft waehrend des gesamten Drags per requestAnimationFrame, nicht nur
+  // bei pointermove -- sonst wuerde das Scrollen sofort stoppen, sobald der
+  // Finger/Zeiger am Rand still haelt (genau der gemeldete Bug: man kam nicht
+  // ueber den sichtbaren Bereich hinaus).
+  function autoScrollStep(){
+    if(!dragRow){ autoScrollRAF = null; return; }
+    const vh = window.innerHeight;
+    let speed = 0;
+    if(lastClientY < AUTOSCROLL_EDGE){
+      speed = -AUTOSCROLL_MAX_SPEED * (1 - lastClientY / AUTOSCROLL_EDGE);
+    } else if(lastClientY > vh - AUTOSCROLL_EDGE){
+      speed = AUTOSCROLL_MAX_SPEED * (1 - (vh - lastClientY) / AUTOSCROLL_EDGE);
+    }
+    if(speed !== 0 && scrollEl){
+      scrollEl.scrollBy(0, speed);
+      checkSwap();
+    }
+    autoScrollRAF = requestAnimationFrame(autoScrollStep);
+  }
+
   function cleanup(){
+    if(autoScrollRAF){ cancelAnimationFrame(autoScrollRAF); autoScrollRAF = null; }
     if(dragRow){
       dragRow.classList.remove("is-dragging");
       dragRow.style.transform = "";
@@ -6523,6 +6583,7 @@ function wireDragReorder(){
     dragRow = row;
     dragId = handle.dataset.drag;
     pointerStartY = e.clientY;
+    lastClientY = e.clientY;
     rowHeight = row.getBoundingClientRect().height;
     moved = false;
 
@@ -6531,10 +6592,12 @@ function wireDragReorder(){
     document.addEventListener("pointermove", onPointerMove);
     document.addEventListener("pointerup", onPointerUp);
     document.addEventListener("pointercancel", onPointerUp);
+    autoScrollRAF = requestAnimationFrame(autoScrollStep);
   }
 
   function onPointerMove(e){
     if(!dragRow) return;
+    lastClientY = e.clientY;
     const dy = e.clientY - pointerStartY;
     if(!moved && Math.abs(dy) > 3){
       moved = true;
@@ -6542,32 +6605,7 @@ function wireDragReorder(){
     }
     if(!moved) return;
     dragRow.style.transform = `translateY(${dy}px)`;
-
-    const dragRect = dragRow.getBoundingClientRect();
-    const dragMid = dragRect.top + dragRect.height / 2;
-
-    const prev = dragRow.previousElementSibling;
-    if(prev && prev.classList.contains("a-row")){
-      const r = prev.getBoundingClientRect();
-      if(dragMid < r.top + r.height / 2){
-        const beforeTop = dragRow.getBoundingClientRect().top;
-        list.insertBefore(dragRow, prev);
-        const afterTop = dragRow.getBoundingClientRect().top;
-        pointerStartY += (afterTop - beforeTop);
-        dragRow.style.transform = `translateY(${e.clientY - pointerStartY}px)`;
-      }
-    }
-    const next = dragRow.nextElementSibling;
-    if(next && next.classList.contains("a-row")){
-      const r = next.getBoundingClientRect();
-      if(dragMid > r.top + r.height / 2){
-        const beforeTop = dragRow.getBoundingClientRect().top;
-        list.insertBefore(dragRow, next.nextElementSibling);
-        const afterTop = dragRow.getBoundingClientRect().top;
-        pointerStartY += (afterTop - beforeTop);
-        dragRow.style.transform = `translateY(${e.clientY - pointerStartY}px)`;
-      }
-    }
+    checkSwap();
   }
 
   async function onPointerUp(){
