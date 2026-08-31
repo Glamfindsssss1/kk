@@ -3712,7 +3712,13 @@ function renderAdminError(e){
 // Intern heissen die Supabase-Spalten anders (category ist ein Key kein Label,
 // style_tag statt style, product_url statt weidian_url) — die beiden Mapper
 // unten sind die einzige Stelle, die diesen Unterschied kennen muss.
-const CSV_COLUMNS = ["title", "price", "category", "style", "image_url", "weidian_url"];
+// "id" und "creator" sind optional beim Import: leer/fehlend -> neues Produkt
+// anlegen (wie bisher). Ist "id" gesetzt UND passt zu einem bestehenden
+// Produkt, wird stattdessen dessen Zeile aktualisiert (siehe importProductsFromCSV) --
+// so lassen sich z.B. pro Creator unterschiedliche Weidian-Links (unterschiedliche
+// Shops fuer dasselbe Produkt) per CSV-Export/-Bearbeiten/-Re-Import pflegen,
+// ohne dass jede Kopie einzeln im Admin angeklickt werden muss.
+const CSV_COLUMNS = ["id", "creator", "title", "price", "category", "style", "image_url", "weidian_url"];
 
 function csvEscapeField(v){
   const s = v === null || v === undefined ? "" : String(v);
@@ -3724,9 +3730,13 @@ function csvEscapeField(v){
 // Ein einzelner Produkt-Datensatz (Supabase-Row) -> eine CSV-Zeile nach aussen.
 // catLabel wandelt den internen category-Key ("tops") in das lesbare Label
 // ("Tops") um, das auch im Formular angezeigt wird — der Import unten macht
-// den Weg zurueck.
-function productToCsvRow(p, catLabel){
+// den Weg zurueck. creatorLabel identifiziert, zu welchem Creator diese
+// konkrete Kopie gehoert (wichtig im "Alle Creator"-Export, wo jede Kopie
+// ihren eigenen Weidian-Link haben kann).
+function productToCsvRow(p, catLabel, creatorLabel){
   return [
+    p.id ?? "",
+    creatorLabel ?? "",
     p.title ?? "",
     p.price ?? 0,
     catLabel(p.category) ?? p.category ?? "",
@@ -3739,24 +3749,37 @@ function productToCsvRow(p, catLabel){
 // Baut den kompletten CSV-Text (inkl. Header) aus den aktuell im Dashboard
 // geladenen Produkten (state.products deckt bereits den aktiven Modus ab —
 // einzelner Creator oder "Alle Creator").
-function buildProductsCsv(products){
+function buildProductsCsv(products, creatorLabelFor){
   const catLabel = k => (state.categories.find(c => c.key === k) || {}).label || k;
   const lines = [CSV_COLUMNS.join(",")];
-  products.forEach(p => lines.push(productToCsvRow(p, catLabel)));
+  products.forEach(p => lines.push(productToCsvRow(p, catLabel, creatorLabelFor ? creatorLabelFor(p) : "")));
   // CRLF, weil Excel (haeufigstes Ziel fuer CSV-Backups) damit zuverlaessiger
   // umgeht als mit reinem \n.
   return lines.join("\r\n");
 }
 
 // Startet den Browser-Download der aktuell geladenen Produkte als CSV-Backup.
-// Nutzt state.products direkt — kein erneuter Supabase-Aufruf noetig, das
-// Dashboard haelt die Liste ohnehin schon aktuell im Speicher.
-function exportProductsToCSV(){
-  if(!state.products.length){
+// Im "Alle Creator"-Modus haelt state.products nur EINE Zeile pro Gruppe
+// (siehe loadProducts) -- fuer den Export werden hier stattdessen ALLE echten
+// Kopien einzeln geladen, jede mit ihrem eigenen Creator-Namen markiert, damit
+// z.B. unterschiedliche Weidian-Shop-Links pro Kopie bearbeitet werden koennen.
+async function exportProductsToCSV(){
+  let products = state.products;
+  let creatorLabelFor = null;
+
+  if(state.activeId === ALL_CREATOR_ID){
+    const { data, error } = await sb.from("products").select("*").not("group_id", "is", null);
+    if(error){ atoast("Export fehlgeschlagen: " + error.message, "err"); return; }
+    products = data ?? [];
+    const nameById = new Map(state.creators.map(c => [c.id, c.slug || c.name]));
+    creatorLabelFor = p => nameById.get(p.creator_id) || "";
+  }
+
+  if(!products.length){
     atoast("Keine Produkte zum Exportieren in dieser Ansicht.", "err");
     return;
   }
-  const csv = buildProductsCsv(state.products);
+  const csv = buildProductsCsv(products, creatorLabelFor);
   // BOM voranstellen, damit Umlaute in Excel korrekt als UTF-8 erkannt werden
   // statt als Mojibake zu erscheinen — reines ASCII-CSV braucht das nicht,
   // aber Produkttitel/Style-Namen sind hier oft deutsch.
@@ -3773,7 +3796,7 @@ function exportProductsToCSV(){
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
-  atoast(`${state.products.length} ${state.products.length === 1 ? "Produkt" : "Produkte"} exportiert.`);
+  atoast(`${products.length} ${products.length === 1 ? "Produkt" : "Produkte"} exportiert.`);
 }
 
 // Minimaler, aber RFC-4180-tauglicher CSV-Parser: respektiert Anfuehrungszeichen
@@ -3814,18 +3837,18 @@ function mapCsvHeader(headerRow){
   return idx;
 }
 
-// Liest eine hochgeladene CSV-Datei ein und legt die enthaltenen Produkte
-// gebuendelt (ein einziger Insert) fuer den aktuell aktiven Creator an.
-// Nicht im "Alle Creator"-Modus verfuegbar — dort ist unklar, bei welchem
-// Creator die importierten Zeilen landen sollten (siehe Aufrufstelle).
+// Liest eine hochgeladene CSV-Datei ein. Zeilen mit ausgefuellter "id"-Spalte
+// (aus einem vorherigen Export) werden als UPDATE der bestehenden Zeile
+// behandelt -- z.B. um pro Creator-Kopie einen eigenen Weidian-Link
+// einzutragen (unterschiedliche Shops, siehe CSV_COLUMNS-Kommentar). Zeilen
+// ohne "id" werden wie bisher als neues Produkt beim aktuell aktiven Creator
+// angelegt -- das geht nur, wenn EIN Creator ausgewaehlt ist (im "Alle
+// Creator"-Modus waere unklar, wo neue Zeilen landen sollten), waehrend
+// UPDATE-Zeilen dort trotzdem funktionieren, weil sie ihre Ziel-Zeile bereits
+// per id kennen.
 async function importProductsFromCSV(file){
   const statusEl = document.getElementById("csvImportStatus");
   const setStatus = (msg, isErr) => { if(statusEl){ statusEl.textContent = msg; statusEl.style.color = isErr ? "#e0524a" : ""; } };
-
-  if(state.activeId === ALL_CREATOR_ID){
-    setStatus("Bulk-Import ist im \u201eAlle Creator\u201c-Modus nicht verfuegbar \u2014 bitte erst einen einzelnen Creator ausw\u00e4hlen.", true);
-    return;
-  }
 
   setStatus("Lese Datei \u2026");
   let text;
@@ -3839,7 +3862,6 @@ async function importProductsFromCSV(file){
   }
 
   const idx = mapCsvHeader(rows[0]);
-  const missing = ["title", "price", "category", "style", "image_url", "weidian_url"].filter(c => !(c in idx));
   // title und category sind fuer eine gueltige Produktzeile unverzichtbar
   // (category muss auf einen bestehenden Key passen) — die uebrigen Spalten
   // duerfen fehlen und werden dann einfach leer/0 importiert.
@@ -3856,6 +3878,7 @@ async function importProductsFromCSV(file){
 
   const last0 = state.products.reduce((m,p)=> Math.max(m, p.sort_order ?? 0), 0);
   const toInsert = [];
+  const toUpdate = [];
   const skipped = [];
 
   rows.slice(1).forEach((r, i) => {
@@ -3868,36 +3891,67 @@ async function importProductsFromCSV(file){
       return;
     }
     const priceRaw = idx.price !== undefined ? (r[idx.price] ?? "").replace(",", ".") : "";
-    toInsert.push({
+    const fields = {
       title,
       price: Number(priceRaw) || 0,
       category: categoryKey,
       style_tag: idx.style !== undefined ? (r[idx.style] ?? "").trim() || null : null,
       image_url: idx.image_url !== undefined ? (r[idx.image_url] ?? "").trim() || null : null,
-      product_url: idx.weidian_url !== undefined ? (r[idx.weidian_url] ?? "").trim() || null : null,
+      product_url: idx.weidian_url !== undefined ? (r[idx.weidian_url] ?? "").trim() || null : null
+    };
+
+    const rowId = idx.id !== undefined ? (r[idx.id] ?? "").trim() : "";
+    if(rowId){
+      toUpdate.push({ id: rowId, ...fields });
+      return;
+    }
+
+    if(state.activeId === ALL_CREATOR_ID){
+      skipped.push(`Zeile ${i+2}: keine id \u2014 im \u201eAlle Creator\u201c-Modus kann nur mit vorhandener id (aus einem Export) aktualisiert werden, keine neuen Zeilen anlegen.`);
+      return;
+    }
+    toInsert.push({
+      ...fields,
       creator_id: state.activeId,
       is_trend: false,
       sort_order: last0 + (toInsert.length + 1) * 10
     });
   });
 
-  if(!toInsert.length){
+  if(!toInsert.length && !toUpdate.length){
     setStatus(skipped.length
       ? `Keine importierbaren Zeilen. ${skipped.length} \u00fcbersprungen \u2014 erste: ${skipped[0]}`
       : "Keine importierbaren Zeilen gefunden.", true);
     return;
   }
 
-  setStatus(`Importiere ${toInsert.length} ${toInsert.length === 1 ? "Produkt" : "Produkte"} \u2026`);
-  const { error } = await sb.from("products").insert(toInsert);
-  if(error){
-    setStatus("Import fehlgeschlagen: " + error.message, true);
-    return;
+  setStatus(`Importiere \u2026`);
+
+  if(toUpdate.length){
+    const results = await Promise.all(toUpdate.map(({ id, ...fields }) =>
+      sb.from("products").update(fields).eq("id", id)
+    ));
+    const err = results.find(r => r.error);
+    if(err){
+      setStatus("Aktualisieren fehlgeschlagen: " + err.error.message, true);
+      return;
+    }
+  }
+
+  if(toInsert.length){
+    const { error } = await sb.from("products").insert(toInsert);
+    if(error){
+      setStatus("Import fehlgeschlagen: " + error.message, true);
+      return;
+    }
   }
 
   state.products = await loadProducts(state.activeId);
   render();
-  atoast(`${toInsert.length} ${toInsert.length === 1 ? "Produkt" : "Produkte"} importiert${skipped.length ? " \u2014 " + skipped.length + " Zeile(n) \u00fcbersprungen" : ""}.`);
+  const parts = [];
+  if(toInsert.length) parts.push(`${toInsert.length} neu angelegt`);
+  if(toUpdate.length) parts.push(`${toUpdate.length} aktualisiert`);
+  atoast(`${parts.join(", ")}${skipped.length ? " \u2014 " + skipped.length + " Zeile(n) \u00fcbersprungen" : ""}.`);
 }
 
 async function loadProducts(creatorId){
@@ -4853,7 +4907,7 @@ function renderDashboard(){
           <label class="a-upload a-csv-dropzone" id="csvDropZone">
             ${UPLOAD_SVG}
             <span>CSV-Datei wählen</span>
-            <span class="a-upload-hint">oder hierher ziehen \u2014 Spalten: title, price, category, style, image_url, weidian_url</span>
+            <span class="a-upload-hint">oder hierher ziehen \u2014 Spalten: id, creator, title, price, category, style, image_url, weidian_url. Zeilen mit id (aus einem Export) aktualisieren die bestehende Zeile statt eine neue anzulegen.</span>
             <input id="csvFileInput" type="file" accept=".csv,text/csv">
           </label>
           <p class="a-hint" id="csvImportStatus" style="margin-top:8px"></p>
