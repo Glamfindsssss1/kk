@@ -1836,6 +1836,42 @@ const AFFILIATE_AGENTS = {
 // (und damit nicht löschbar), auch falls ein DB-Eintrag denselben Kürzel wiederverwendet.
 const BUILTIN_AFFILIATE_AGENT_KEYS = Object.keys(AFFILIATE_AGENTS);
 
+/**
+ * Leitet Host, Code-Parameter und Produkt-Link-Vorlage aus einem echten
+ * Beispiel-Produktlink her (mit echter Weidian-itemID und echtem Code drin),
+ * damit man beim Admin-Formular "Neuen Agenten anlegen" nicht von Hand mit
+ * {ITEM_ID}/{CODE} basteln muss. Ersetzt itemId/code nur an Stellen, wo sie
+ * als eigenständiger Wert stehen (nach "=" oder "/", vor "&"/"/"/Ende) —
+ * so wird z.B. bei usfans nicht versehentlich die "3" im Pfad getroffen.
+ * Gibt null zurück, wenn der Link ungültig ist oder itemId/code nicht vorkommen.
+ */
+function detectAgentTemplateFromExample(exampleLink, itemId, code){
+  if(!exampleLink || !itemId || !code) return null;
+  let url;
+  try { url = new URL(exampleLink); } catch { return null; }
+
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const tokenRe = (token) => new RegExp(`(?<=[=/])${esc(token)}(?=[&?/]|$)`, "g");
+
+  if(!tokenRe(itemId).test(exampleLink)) return null;
+  if(!tokenRe(code).test(exampleLink)) return null;
+
+  let codeParam = null;
+  for(const [k, v] of url.searchParams.entries()){
+    if(v === code){ codeParam = k; break; }
+  }
+
+  const template = exampleLink
+    .replace(tokenRe(itemId), "{ITEM_ID}")
+    .replace(tokenRe(code), "{CODE}");
+
+  return {
+    host: url.hostname.replace(/^www\./, ""),
+    codeParam: codeParam || "inviteCode",
+    template
+  };
+}
+
 // Admin-verwaltete Agenten (Tabelle affiliate_agents) werden hier reingemischt —
 // so kann man im Admin-Bereich neue Agenten anlegen, ohne Code zu ändern.
 // Gleicher agent_key wie ein fest einprogrammierter Agent überschreibt diesen.
@@ -4447,6 +4483,22 @@ function renderDashboard(){
                   <button class="a-icon a-icon-del" data-delagent="${aesc(a.id)}" aria-label="${aesc(a.display_name)} löschen">✕</button>
                 </div>
               </div>`).join("")}
+          </div>
+          <div class="a-block" style="background:#f7f8fa;border-radius:12px;padding:14px 16px;margin-bottom:18px">
+            <p class="a-block-title" style="margin-top:0">Automatisch aus Beispiel-Link erstellen</p>
+            <p class="a-hint" style="margin:0 0 12px">
+              Einfach einen echten Produktlink des Anbieters einfügen (mit echter Item-ID und echtem Code drin)
+              — Host, Code-Parameter und Vorlage werden daraus erkannt.
+            </p>
+            <div class="a-grid">
+              <div class="a-full">
+                <label class="a-label" for="agent-example-link">Beispiel-Produktlink (mit echten Werten)</label>
+                <input id="agent-example-link" class="a-field" placeholder="https://www.lovegobuy.com/product?id=7845175156&shop_type=weidian&invite_code=RCOPOO">
+              </div>
+              <div><label class="a-label" for="agent-example-itemid">Original-Weidian-itemID darin</label><input id="agent-example-itemid" class="a-field" placeholder="7845175156"></div>
+              <div><label class="a-label" for="agent-example-code">Dein Code darin</label><input id="agent-example-code" class="a-field" placeholder="RCOPOO"></div>
+              <div class="a-actions" style="margin-top:0"><button type="button" class="a-btn a-btn-ghost" id="agentDetectBtn">Übernehmen</button></div>
+            </div>
           </div>
           <form id="agentForm" class="a-grid">
             <div><label class="a-label" for="agent-key">Kürzel *</label><input id="agent-key" class="a-field" required placeholder="mulebuy"></div>
@@ -7519,6 +7571,21 @@ function wireDashboard(){
   });
 
   // ---- Affiliate-Agenten ----
+  const agentDetectBtn = document.getElementById("agentDetectBtn");
+  if(agentDetectBtn) agentDetectBtn.onclick = ()=>{
+    const exampleLink = document.getElementById("agent-example-link").value.trim();
+    const itemId = document.getElementById("agent-example-itemid").value.trim();
+    const code = document.getElementById("agent-example-code").value.trim();
+    const result = detectAgentTemplateFromExample(exampleLink, itemId, code);
+    if(!result){
+      return atoast("Konnte Item-ID und/oder Code im Beispiel-Link nicht finden — bitte prüfen.", "err");
+    }
+    document.getElementById("agent-host").value = result.host;
+    document.getElementById("agent-codeparam").value = result.codeParam;
+    document.getElementById("agent-template").value = result.template;
+    atoast(`Erkannt: Host „${result.host}", Code-Parameter „${result.codeParam}".`);
+  };
+
   const agentForm = document.getElementById("agentForm");
   if(agentForm) agentForm.onsubmit = async (e)=>{
     e.preventDefault();
