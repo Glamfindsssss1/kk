@@ -4685,8 +4685,11 @@ function renderDashboard(){
           <div>
             <label class="a-label" for="p-position">Position</label>
             <select id="p-position" class="a-field">
-              <option value="bottom">Unten anhängen</option>
-              <option value="top">Oben anhängen</option>
+              <option value="bottom">Ganz unten anhängen</option>
+              <option value="top">Ganz oben anhängen</option>
+              <option value="top25">In obere 25% einsortieren</option>
+              <option value="middle50">In mittlere 50% einsortieren</option>
+              <option value="bottom25">In untere 25% einsortieren</option>
             </select>
           </div>
 
@@ -7736,6 +7739,22 @@ function wireDashboard(){
       opts.map(s=>`<option value="${aesc(s.key)}">${aesc(s.label)}</option>`).join("");
   };
 
+  // Bestimmt den sort_order-Wert fuer ein neu angelegtes Produkt anhand der
+  // gewaehlten Position. "top"/"bottom" haengen ganz vorne/hinten an (ausserhalb
+  // der bestehenden Spanne), die Prozent-Optionen setzen den Wert genau zwischen
+  // die beiden Nachbar-Produkte an der jeweiligen Stelle der (aufsteigend
+  // sortierten) Liste -- aufsteigender sort_order = oben auf der Seite.
+  function pickSortOrder(orders, position){
+    const sorted = orders.slice().sort((a,b) => a - b);
+    if(!sorted.length) return 0;
+    if(position === "top") return sorted[0] - 10;
+    if(position === "bottom") return sorted[sorted.length - 1] + 10;
+    const pct = position === "top25" ? 0.25 : position === "bottom25" ? 0.75 : 0.5;
+    const idx = (sorted.length - 1) * pct;
+    const lo = Math.floor(idx), hi = Math.ceil(idx);
+    return lo === hi ? sorted[lo] : Math.round((sorted[lo] + sorted[hi]) / 2);
+  }
+
   const pForm = document.getElementById("productForm");
   if(pForm) pForm.onsubmit = async (e)=>{
     e.preventDefault();
@@ -7777,23 +7796,20 @@ function wireDashboard(){
           return atoast("Noch kein Creator vorhanden — leg oben erst einen an.", "err");
         }
         // Eine group_id verbindet alle Kopien dieser Aktion; sort_order wird pro
-        // Ziel-Creator einzeln an den Anfang oder ans Ende seiner eigenen Liste
-        // gehaengt (je nach "Position"-Auswahl), nicht global.
+        // Ziel-Creator einzeln anhand der "Position"-Auswahl in dessen eigene
+        // Liste einsortiert, nicht global.
         const groupId = crypto.randomUUID();
         const { data: existing } = await sb.from("products").select("creator_id, sort_order");
-        const lastByCreator = new Map();
-        const firstByCreator = new Map();
+        const ordersByCreator = new Map();
         (existing ?? []).forEach(p => {
-          lastByCreator.set(p.creator_id, Math.max(lastByCreator.get(p.creator_id) ?? 0, p.sort_order ?? 0));
-          firstByCreator.set(p.creator_id, Math.min(firstByCreator.get(p.creator_id) ?? 0, p.sort_order ?? 0));
+          if(!ordersByCreator.has(p.creator_id)) ordersByCreator.set(p.creator_id, []);
+          ordersByCreator.get(p.creator_id).push(p.sort_order ?? 0);
         });
         const rows = state.creators.map(c => ({
           ...baseFields,
           creator_id: c.id,
           group_id: groupId,
-          sort_order: position === "top"
-            ? (firstByCreator.get(c.id) ?? 0) - 10
-            : (lastByCreator.get(c.id) ?? 0) + 10
+          sort_order: pickSortOrder(ordersByCreator.get(c.id) ?? [], position)
         }));
         ({ error } = await sb.from("products").insert(rows));
 
@@ -7811,9 +7827,7 @@ function wireDashboard(){
           atoast(`Produkt bei ${rows.length} ${rows.length === 1 ? "Creator" : "Creatorn"} angelegt.`);
         }
       } else {
-        const sort_order = position === "top"
-          ? state.products.reduce((m,p)=> Math.min(m, p.sort_order ?? 0), 0) - 10
-          : state.products.reduce((m,p)=> Math.max(m, p.sort_order ?? 0), 0) + 10;
+        const sort_order = pickSortOrder(state.products.map(p => p.sort_order ?? 0), position);
         ({ error } = await sb.from("products").insert({
           ...baseFields,
           creator_id: state.activeId,
