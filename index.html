@@ -5264,8 +5264,22 @@ function buildAreaChartSvg(points, color, valueFormatter){
     return `<line x1="${padL}" y1="${yy.toFixed(1)}" x2="${W-padR}" y2="${yy.toFixed(1)}" stroke="#eef0f4" stroke-width="1"/>`;
   }).join("");
 
+  // Text-Anker fuer Datums-/Wertbeschriftungen: der erste und letzte Punkt
+  // liegen direkt am linken/rechten Rand des Diagramms (nur padL/padR = 12
+  // Abstand). Mit "middle" (zentriert) ragt eine mehrstellige Beschriftung
+  // dort zur Haelfte ueber den Rand hinaus und wird vom SVG abgeschnitten
+  // (sichtbar z.B. als abgeschnittenes Datum "3.08." statt "23.08."). Die
+  // Randpunkte richten ihre Beschriftung deshalb nach innen aus, statt sie
+  // zu zentrieren — alle mittleren Punkte bleiben zentriert.
+  const labelAnchor = i => {
+    if(points.length <= 1) return "middle";
+    if(i === 0) return "start";
+    if(i === points.length - 1) return "end";
+    return "middle";
+  };
+
   const xLabels = points.map((p,i)=> p.label
-    ? `<text x="${x(i).toFixed(1)}" y="${H-6}" font-size="11" font-weight="600" fill="#9aa2b1" text-anchor="middle" class="rv-fade" style="animation-delay:${(220 + i*8)}ms">${aesc(p.label)}</text>`
+    ? `<text x="${x(i).toFixed(1)}" y="${H-6}" font-size="11" font-weight="600" fill="#9aa2b1" text-anchor="${labelAnchor(i)}" class="rv-fade" style="animation-delay:${(220 + i*8)}ms">${aesc(p.label)}</text>`
     : ""
   ).join("");
 
@@ -5283,7 +5297,7 @@ function buildAreaChartSvg(points, color, valueFormatter){
     // den Linien-Zeichnen-Effekt selbst.
     const delay = 260 + (i/(points.length-1||1)) * 420;
     return `
-      <text x="${cx}" y="${(y(p.value)-14).toFixed(1)}" font-size="11" font-weight="800" fill="${isLast ? color : "#6b7280"}" text-anchor="middle" class="rv-fade" style="animation-delay:${delay.toFixed(0)}ms">${aesc(valueFormatter(p.value))}</text>
+      <text x="${cx}" y="${(y(p.value)-14).toFixed(1)}" font-size="11" font-weight="800" fill="${isLast ? color : "#6b7280"}" text-anchor="${labelAnchor(i)}" class="rv-fade" style="animation-delay:${delay.toFixed(0)}ms">${aesc(valueFormatter(p.value))}</text>
       <circle cx="${cx}" cy="${cy}" r="${isLast?5:4}" fill="#fff" stroke="${color}" stroke-width="2.5" class="rv-dot-pop" style="animation-delay:${delay.toFixed(0)}ms"/>`;
   }).join("");
 
