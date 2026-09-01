@@ -5226,19 +5226,18 @@ function aggregateAgentDistribution(events, creators){
     .sort((a,b)=> b.count - a.count);
 }
 
-// Waehlt bis zu maxLabels Indizes aus n Punkten aus, gleichmaessig verteilt
-// (inkl. erstem und letztem Punkt). Ohne das wuerde ein simples "jeden n-ten
-// Punkt beschriften, plus immer den letzten" Muster am Ende leicht zwei
-// Beschriftungen nah nebeneinander setzen, sobald der letzte Index nicht
-// zufaellig ins Raster passt (sichtbar als ungleicher Abstand kurz vor der
-// letzten Marke, z.B. "27.08. 29.08. 31.08. 01.09." mit einem sichtbar
-// kuerzeren letzten Abstand statt gleichmaessiger Schritte).
+// Waehlt Indizes aus n Punkten fuer die Achsenbeschriftung aus, in einem
+// festen Abstand ("jeden Schritt-ten Punkt") statt einer auf Anzahl
+// gerundeten Verteilung -- eine gerundete Verteilung wuerde die Schrittweite
+// zwischendrin leicht schwanken lassen (z.B. 1,2,1,2 Tage), was optisch wie
+// ein Fehler aussieht. Hier bleibt der Abstand zwischen allen sichtbaren
+// Beschriftungen exakt gleich; der allerletzte Punkt bekommt dafuer nicht
+// zwingend eine eigene Beschriftung, wenn er nicht zufaellig ins Raster faellt.
 function pickEvenLabelIndices(n, maxLabels){
   if(n <= maxLabels) return new Set(Array.from({ length: n }, (_, i) => i));
+  const step = Math.ceil(n / maxLabels);
   const indices = new Set();
-  for(let k = 0; k < maxLabels; k++){
-    indices.add(Math.round(k * (n-1) / (maxLabels-1)));
-  }
+  for(let i = 0; i < n; i += step) indices.add(i);
   return indices;
 }
 
