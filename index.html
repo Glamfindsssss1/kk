@@ -5227,17 +5227,18 @@ function aggregateAgentDistribution(events, creators){
 }
 
 // Waehlt Indizes aus n Punkten fuer die Achsenbeschriftung aus, in einem
-// festen Abstand ("jeden Schritt-ten Punkt") statt einer auf Anzahl
-// gerundeten Verteilung -- eine gerundete Verteilung wuerde die Schrittweite
-// zwischendrin leicht schwanken lassen (z.B. 1,2,1,2 Tage), was optisch wie
-// ein Fehler aussieht. Hier bleibt der Abstand zwischen allen sichtbaren
-// Beschriftungen exakt gleich; der allerletzte Punkt bekommt dafuer nicht
-// zwingend eine eigene Beschriftung, wenn er nicht zufaellig ins Raster faellt.
+// festen Abstand ("jeden Schritt-ten Punkt", vom LETZTEN Punkt aus rueckwaerts
+// gezaehlt) statt einer auf Anzahl gerundeten Verteilung -- eine gerundete
+// Verteilung liess die Schrittweite zwischendrin schwanken (z.B. 1,2,1,2
+// Tage), ein fester Schritt ab dem ersten Punkt liess dafuer den letzten
+// (aktuellsten) Punkt oft ganz ohne Beschriftung "in der Luft haengen". Vom
+// letzten Punkt rueckwaerts zu zaehlen loest beides: der Abstand bleibt
+// ueberall exakt gleich, UND der aktuellste Punkt hat garantiert ein Datum.
 function pickEvenLabelIndices(n, maxLabels){
   if(n <= maxLabels) return new Set(Array.from({ length: n }, (_, i) => i));
-  const step = Math.ceil(n / maxLabels);
+  const step = Math.ceil((n-1) / (maxLabels-1));
   const indices = new Set();
-  for(let i = 0; i < n; i += step) indices.add(i);
+  for(let i = n-1; i >= 0; i -= step) indices.add(i);
   return indices;
 }
 
