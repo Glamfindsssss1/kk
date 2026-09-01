@@ -73,6 +73,18 @@
       "skillPath": "skills/review-animations/SKILL.md",
       "computedHash": "b9f669af5ae280c19a592a94611520335a81de25c88f225bf60ae4b2d66c8c7c"
     },
+    "svg-animations": {
+      "source": "supermemoryai/skills",
+      "sourceType": "github",
+      "skillPath": "svg-animations/SKILL.md",
+      "computedHash": "9be4b3e0afe9d3cbb1bcf238f8504f9a23552f742350fbef9483070112ac1977"
+    },
+    "ux-writing": {
+      "source": "content-designer/ux-writing-skill",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "7a9be24c109c69070451aaa30f75417825cb6b85435c775ad58185c52449cbfc"
+    },
     "write-swift": {
       "source": "emilkowalski/skill",
       "sourceType": "github",
