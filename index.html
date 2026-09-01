@@ -5226,14 +5226,25 @@ function aggregateAgentDistribution(events, creators){
     .sort((a,b)=> b.count - a.count);
 }
 
-// Baut ein einfaches SVG-Liniendiagramm (eine Linie fuer die gewaehlte Kennzahl)
-// ohne externe Chart-Bibliothek — passend zum Rest der Datei, die bewusst ohne
-// Build-Schritt/npm-Pakete auskommt. metricKey waehlt das Feld aus series
-// ("views" | "visitors" | "bannerClicks" | "buys"), color dessen Linienfarbe.
-// Linienchart mit gefuellter Flaeche und sichtbaren Punkten fuer wenige
-// Datenpunkte (z.B. 7 Tage Umsatz) — eigene Funktion statt buildAnalyticsChartSvg
-// wiederzuverwenden, da dort Punkte/Flaeche bei taeglich vielen Analytics-Punkten
-// zu unruhig waeren; hier bei nur ~7 Werten sind sie das gewuenschte Detail.
+// Waehlt bis zu maxLabels Indizes aus n Punkten aus, gleichmaessig verteilt
+// (inkl. erstem und letztem Punkt). Ohne das wuerde ein simples "jeden n-ten
+// Punkt beschriften, plus immer den letzten" Muster am Ende leicht zwei
+// Beschriftungen nah nebeneinander setzen, sobald der letzte Index nicht
+// zufaellig ins Raster passt (sichtbar als ungleicher Abstand kurz vor der
+// letzten Marke, z.B. "27.08. 29.08. 31.08. 01.09." mit einem sichtbar
+// kuerzeren letzten Abstand statt gleichmaessiger Schritte).
+function pickEvenLabelIndices(n, maxLabels){
+  if(n <= maxLabels) return new Set(Array.from({ length: n }, (_, i) => i));
+  const indices = new Set();
+  for(let k = 0; k < maxLabels; k++){
+    indices.add(Math.round(k * (n-1) / (maxLabels-1)));
+  }
+  return indices;
+}
+
+// Linienchart mit gefuellter Flaeche und sichtbaren Punkten — von Analytics
+// (Klick-Verlauf) und Umsatz gemeinsam genutzt, damit beide Diagramme
+// identisch aussehen und sich identisch verhalten.
 function buildAreaChartSvg(points, color, valueFormatter){
   if(!points.length) return null;
 
@@ -5333,13 +5344,12 @@ function renderAnalyticsChartBlock(series){
   // eigenen, schlichteren Variante -- so sehen beide Verlaufs-Diagramme
   // (gefuellte Flaeche, animierte Linie, Werte an den Punkten) identisch aus.
   // Nur eine Auswahl an Datumsbeschriftungen, sonst ueberlappen sie sich bei langen Zeitraeumen.
-  const labelEvery = Math.max(1, Math.ceil(series.length / 6));
+  const labelIdx = pickEvenLabelIndices(series.length, 6);
   const points = series.map((d,i)=>{
     const dt = new Date(d.date + "T00:00:00");
-    const showLabel = i % labelEvery === 0 || i === series.length-1;
     return {
       value: d[analyticsMetric] ?? 0,
-      label: showLabel ? dt.toLocaleDateString("de-DE", { day:"2-digit", month:"2-digit" }) : ""
+      label: labelIdx.has(i) ? dt.toLocaleDateString("de-DE", { day:"2-digit", month:"2-digit" }) : ""
     };
   });
   const chartSvg = buildAreaChartSvg(points, metric.color, v => Math.round(v).toLocaleString("de-DE"));
@@ -5684,12 +5694,10 @@ function buildRevenueSeries(orders, period){
     if(idx >= 0 && idx < days) buckets[idx].revenue += o.price;
   });
   // Bei 30 Tagen nur jeden paar Tage beschriften, sonst ueberladen sich die Labels
-  const labelEvery = days > 10 ? Math.ceil(days/8) : 1;
+  const labelIdx = pickEvenLabelIndices(days, days > 10 ? 8 : days);
   return buckets.map((b, i) => ({
     revenue: Math.round(b.revenue*100)/100,
-    label: (i % labelEvery === 0 || i === days-1)
-      ? resetDateLabel(b.bucketStartMs)
-      : ""
+    label: labelIdx.has(i) ? resetDateLabel(b.bucketStartMs) : ""
   }));
 }
 
