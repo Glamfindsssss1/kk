@@ -872,7 +872,6 @@
   .an-chart-legend{display:flex;gap:18px;margin-bottom:14px;font-size:13px;color:var(--muted);}
   .an-chart-legend span{display:inline-flex;align-items:center;gap:6px;font-weight:600;}
   .an-legend-dot{width:9px;height:9px;border-radius:999px;flex:0 0 auto;}
-  .an-chart-svg{width:100%;height:220px;display:block;overflow:visible;}
   .an-chart-empty{padding:50px 0;text-align:center;color:var(--muted);font-size:14px;}
 
   .an-top-list{display:flex;flex-direction:column;max-height:520px;overflow-y:auto;}
@@ -5231,43 +5230,6 @@ function aggregateAgentDistribution(events, creators){
 // ohne externe Chart-Bibliothek — passend zum Rest der Datei, die bewusst ohne
 // Build-Schritt/npm-Pakete auskommt. metricKey waehlt das Feld aus series
 // ("views" | "visitors" | "bannerClicks" | "buys"), color dessen Linienfarbe.
-function buildAnalyticsChartSvg(series, metricKey, color){
-  if(!series.length) return null;
-
-  const W = 640, H = 220, padL = 34, padR = 12, padT = 14, padB = 26;
-  const innerW = W - padL - padR, innerH = H - padT - padB;
-  const maxVal = Math.max(1, ...series.map(d => d[metricKey]));
-
-  const x = i => padL + (series.length === 1 ? innerW/2 : (i/(series.length-1)) * innerW);
-  const y = v => padT + innerH - (v/maxVal) * innerH;
-
-  const linePath = series.map((d,i)=> `${i===0?"M":"L"}${x(i).toFixed(1)},${y(d[metricKey]).toFixed(1)}`).join(" ");
-
-  // Nur eine Auswahl an Datumsbeschriftungen, sonst ueberlappen sie bei langen Zeitraeumen
-  const labelEvery = Math.max(1, Math.ceil(series.length / 6));
-  const dateLabels = series.map((d,i)=>{
-    if(i % labelEvery !== 0 && i !== series.length-1) return "";
-    const dt = new Date(d.date + "T00:00:00");
-    return dt.toLocaleDateString("de-DE", { day:"2-digit", month:"2-digit" });
-  });
-
-  const gridLines = [0, 0.5, 1].map(f => {
-    const yy = padT + innerH * f;
-    return `<line x1="${padL}" y1="${yy.toFixed(1)}" x2="${W-padR}" y2="${yy.toFixed(1)}" stroke="#eef0f4" stroke-width="1"/>`;
-  }).join("");
-
-  const xLabels = series.map((d,i)=> dateLabels[i]
-    ? `<text x="${x(i).toFixed(1)}" y="${H-6}" font-size="10" fill="#9aa2b1" text-anchor="middle">${dateLabels[i]}</text>`
-    : "").join("");
-
-  return `
-    <svg class="an-chart-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Klick-Verlauf">
-      ${gridLines}
-      <path d="${linePath}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-      ${xLabels}
-    </svg>`;
-}
-
 // Linienchart mit gefuellter Flaeche und sichtbaren Punkten fuer wenige
 // Datenpunkte (z.B. 7 Tage Umsatz) — eigene Funktion statt buildAnalyticsChartSvg
 // wiederzuverwenden, da dort Punkte/Flaeche bei taeglich vielen Analytics-Punkten
@@ -5353,15 +5315,30 @@ let lastAnalyticsSeries = [];
 // neu rendern muss, statt die komplette Analytics-Ansicht neu zu laden.
 function renderAnalyticsChartBlock(series){
   const metric = ANALYTICS_METRICS[analyticsMetric] || ANALYTICS_METRICS.views;
-  const chartSvg = buildAnalyticsChartSvg(series, analyticsMetric, metric.color);
+  // Gleicher Chart-Baustein wie im Umsatzbereich (buildAreaChartSvg) statt einer
+  // eigenen, schlichteren Variante -- so sehen beide Verlaufs-Diagramme
+  // (gefuellte Flaeche, animierte Linie, Werte an den Punkten) identisch aus.
+  // Nur eine Auswahl an Datumsbeschriftungen, sonst ueberlappen sie sich bei langen Zeitraeumen.
+  const labelEvery = Math.max(1, Math.ceil(series.length / 6));
+  const points = series.map((d,i)=>{
+    const dt = new Date(d.date + "T00:00:00");
+    const showLabel = i % labelEvery === 0 || i === series.length-1;
+    return {
+      value: d[analyticsMetric] ?? 0,
+      label: showLabel ? dt.toLocaleDateString("de-DE", { day:"2-digit", month:"2-digit" }) : ""
+    };
+  });
+  const chartSvg = buildAreaChartSvg(points, metric.color, v => Math.round(v).toLocaleString("de-DE"));
   return `
-    <p class="a-block-title" style="margin:0 0 10px">Klick-Verlauf \u00b7 ${metric.label}</p>
-    ${chartSvg ? `
-      <div class="an-chart-legend">
-        <span><span class="an-legend-dot" style="background:${metric.color}"></span>${metric.label}</span>
-      </div>
-      ${chartSvg}
-    ` : `<div class="an-chart-empty">Noch keine Daten in diesem Zeitraum.</div>`}`;
+    <div class="rv-chart-card">
+      <p class="a-block-title" style="margin:0 0 10px">Klick-Verlauf \u00b7 ${metric.label}</p>
+      ${chartSvg ? `
+        <div class="an-chart-legend">
+          <span><span class="an-legend-dot" style="background:${metric.color}"></span>${metric.label}</span>
+        </div>
+        <div class="rv-line-wrap">${chartSvg}</div>
+      ` : `<div class="an-chart-empty">Noch keine Daten in diesem Zeitraum.</div>`}
+    </div>`;
 }
 
 // Macht die KPI-Karten klickbar: Klick waehlt die Kennzahl, deren Verlauf das
