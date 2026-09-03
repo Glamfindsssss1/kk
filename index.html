@@ -890,16 +890,43 @@
      tragen Farbe, damit der Blick sofort dort landet. */
   .an-map-card{border:1px solid var(--border);border-radius:16px;background:#fff;
     padding:18px 20px 14px;margin-bottom:24px;}
-  .an-map-stage{position:relative;width:100%;}
-  .an-map-svg{display:block;width:100%;height:auto;}
-  .an-map-land{fill:#e9edf5;stroke:#d7dded;stroke-width:.4;}
+  .an-map-head{display:flex;align-items:center;justify-content:space-between;
+    gap:12px;flex-wrap:wrap;margin-bottom:12px;}
+  .an-map-zoom{display:inline-flex;align-items:center;gap:6px;}
+  .an-map-zoom button{border:1px solid var(--border);background:#fff;color:var(--text);
+    border-radius:10px;height:30px;min-width:30px;padding:0 8px;font-size:15px;
+    font-weight:700;line-height:1;cursor:pointer;display:inline-flex;
+    align-items:center;justify-content:center;transition:background .14s ease,border-color .14s ease;}
+  .an-map-zoom button:hover{background:#f4f5f9;border-color:#c9cfdd;}
+  .an-map-zoom button:disabled{opacity:.4;cursor:default;background:#fff;border-color:var(--border);}
+  .an-map-zoom-reset{font-size:12px !important;font-weight:600 !important;padding:0 11px !important;}
+  /* Der Kartenausschnitt wird beim Zoomen per viewBox verschoben — overflow
+     versteckt, was ausserhalb des Rahmens liegt. */
+  .an-map-stage{position:relative;width:100%;overflow:hidden;border-radius:12px;}
+  .an-map-svg{display:block;width:100%;height:auto;touch-action:none;cursor:grab;
+    -webkit-user-select:none;user-select:none;}
+  .an-map-svg.is-dragging{cursor:grabbing;}
+  /* non-scaling-stroke: Linienstaerken bleiben beim Zoomen gleich duenn,
+     sonst werden Kuestenlinien und Punktraender beim Reinzoomen fett. */
+  .an-map-land{fill:#e9edf5;stroke:#d7dded;stroke-width:.4;vector-effect:non-scaling-stroke;}
   .an-map-dot{fill:var(--accent);stroke:#fff;stroke-width:1.2;cursor:pointer;
-    transition:fill-opacity .14s ease;}
+    vector-effect:non-scaling-stroke;transition:fill-opacity .14s ease;}
   .an-map-dot:hover,.an-map-dot:focus{fill-opacity:1 !important;outline:none;}
   .an-map-dot:focus-visible{stroke:#0f172a;stroke-width:2;}
-  .an-map-pulse{fill:none;stroke:var(--accent);stroke-width:1.4;pointer-events:none;}
+  .an-map-pulse{fill:none;stroke:var(--accent);stroke-width:1.4;pointer-events:none;
+    vector-effect:non-scaling-stroke;transform-box:fill-box;transform-origin:center;
+    animation:anMapPulse 2.4s ease-out infinite;}
+  @keyframes anMapPulse{
+    0%{transform:scale(1);opacity:.6;}
+    70%{transform:scale(2.8);opacity:0;}
+    100%{transform:scale(2.8);opacity:0;}
+  }
+  @media (prefers-reduced-motion: reduce){
+    .an-map-pulse{animation:none;opacity:.35;}
+  }
   .an-map-hint{margin:0;padding:48px 0;text-align:center;font-size:13px;
     line-height:1.6;color:var(--muted);}
+  .an-map-hint-line{margin:3px 0 0;font-size:12px;color:var(--muted);}
   /* Tooltip sitzt über dem Punkt, horizontal auf ihn zentriert */
   .an-map-tip{position:absolute;transform:translate(-50%,calc(-100% - 10px));
     background:#0f172a;color:#fff;border-radius:10px;padding:8px 11px;
@@ -6043,6 +6070,151 @@ function renderVisitorMapLegend(byCountry, viewsWithoutCountry){
     ${viewsWithoutCountry ? `<p class="an-map-note">${viewsWithoutCountry.toLocaleString("de-DE")} Aufrufe ohne Herkunft (vor Einführung der Erfassung oder Zeitzone nicht bestimmbar).</p>` : ""}`;
 }
 
+// ---- Zoomen und Verschieben ----------------------------------------
+// Umgesetzt ueber die viewBox des SVG statt ueber CSS-Transformationen:
+// so bleibt die Karte in jeder Zoomstufe gestochen scharf (Vektor), und
+// Punktpositionen bleiben exakt. mapView ist der aktuelle Ausschnitt in
+// Karten-Koordinaten und bleibt ueber Filterwechsel hinweg erhalten.
+const MAP_MAX_ZOOM = 8;
+let mapView = { x: 0, y: 0, w: WORLD_VIEWBOX.w, h: WORLD_VIEWBOX.h };
+
+// Haelt den Ausschnitt innerhalb der Weltkarte und begrenzt die Zoomstufe.
+function clampMapView(v){
+  const { w: W, h: H } = WORLD_VIEWBOX;
+  const width  = Math.min(W, Math.max(W / MAP_MAX_ZOOM, v.w));
+  const height = width * (H / W);   // Seitenverhaeltnis fest, sonst verzerrt die Karte
+  return {
+    w: width,
+    h: height,
+    x: Math.min(Math.max(0, v.x), W - width),
+    y: Math.min(Math.max(0, v.y), H - height)
+  };
+}
+
+// Schreibt den Ausschnitt ins SVG und passt die Punktgroessen an: ohne das
+// wuerden Punkte beim Hineinzoomen einfach mitwachsen und die Karte
+// zupflastern. Der Ausgleich ist bewusst unvollstaendig (Exponent 0.7),
+// damit beim Hineinzoomen trotzdem noch ein leichtes Groesserwerden bleibt.
+function applyMapView(){
+  const svg = document.getElementById("anMapSvg");
+  if(!svg) return;
+  mapView = clampMapView(mapView);
+  svg.setAttribute("viewBox", `${mapView.x.toFixed(2)} ${mapView.y.toFixed(2)} ${mapView.w.toFixed(2)} ${mapView.h.toFixed(2)}`);
+
+  const zoom = WORLD_VIEWBOX.w / mapView.w;
+  const scale = Math.pow(zoom, 0.7);
+  svg.querySelectorAll("[data-r]").forEach(el=>{
+    const base = Number(el.dataset.r) || 3;
+    el.setAttribute("r", Math.max(1.2, base / scale).toFixed(2));
+  });
+
+  // Bedienelemente an den aktuellen Stand anpassen: "Zuruecksetzen" taucht
+  // erst auf, wenn wirklich gezoomt ist, und +/- werden an den Grenzen grau.
+  const reset = document.getElementById("anMapReset");
+  if(reset) reset.hidden = zoom <= 1.01;
+  const zoomIn  = document.getElementById("anMapIn");
+  const zoomOut = document.getElementById("anMapOut");
+  if(zoomIn)  zoomIn.disabled  = zoom >= MAP_MAX_ZOOM - 0.01;
+  if(zoomOut) zoomOut.disabled = zoom <= 1.01;
+}
+
+// Setzt die Karte auf die ganze Welt zurueck.
+function resetMapView(){
+  mapView = { x: 0, y: 0, w: WORLD_VIEWBOX.w, h: WORLD_VIEWBOX.h };
+  applyMapView();
+}
+
+// Zoomt ueber die +/- Buttons: ohne Ankerpunkt, also immer zur Bildmitte.
+function zoomMapFromButton(f){
+  zoomMapBy(f, { x: mapView.x + mapView.w / 2, y: mapView.y + mapView.h / 2 });
+}
+
+// Bildschirmpunkt -> Karten-Koordinate. Das SVG behaelt immer das
+// Seitenverhaeltnis der viewBox (Breite 100%, Hoehe automatisch), deshalb
+// reicht diese lineare Umrechnung ohne getScreenCTM.
+function mapPointFromEvent(svg, clientX, clientY){
+  const rect = svg.getBoundingClientRect();
+  return {
+    x: mapView.x + (clientX - rect.left) / rect.width  * mapView.w,
+    y: mapView.y + (clientY - rect.top)  / rect.height * mapView.h
+  };
+}
+
+// Zoomt um den Faktor f und haelt dabei den Punkt (anchor) unter dem
+// Mauszeiger fest -- ohne diesen Anker wuerde die Karte beim Radzoom
+// unter dem Zeiger wegrutschen.
+function zoomMapBy(f, anchor){
+  const before = { ...mapView };
+  const target = clampMapView({ ...mapView, w: mapView.w / f });
+  if(anchor){
+    const fx = (anchor.x - before.x) / before.w;
+    const fy = (anchor.y - before.y) / before.h;
+    target.x = anchor.x - fx * target.w;
+    target.y = anchor.y - fy * target.h;
+  } else {
+    target.x = before.x + (before.w - target.w) / 2;
+    target.y = before.y + (before.h - target.h) / 2;
+  }
+  mapView = clampMapView(target);
+  applyMapView();
+}
+
+function wireMapZoom(stage){
+  const svg = document.getElementById("anMapSvg");
+  if(!svg) return;
+
+  // Doppelklick zoomt an der geklickten Stelle hinein -- das ist die
+  // naheliegendste Geste und braucht keine Erklaerung.
+  svg.addEventListener("dblclick", (e)=>{
+    e.preventDefault();
+    zoomMapBy(2, mapPointFromEvent(svg, e.clientX, e.clientY));
+  });
+
+  // Das Mausrad ALLEIN scrollt bewusst weiterhin die Seite: die Karte steht
+  // mitten in einer langen Ansicht, und eine Karte, die das Scrollen
+  // abfaengt, fuehlt sich wie eine Falle an. Gezoomt wird nur mit
+  // gedrueckter Strg-/Cmd-Taste -- und damit automatisch auch mit der
+  // Zwei-Finger-Pinch-Geste am Touchpad, die der Browser genau so meldet.
+  svg.addEventListener("wheel", (e)=>{
+    if(!e.ctrlKey && !e.metaKey) return;
+    e.preventDefault();
+    zoomMapBy(e.deltaY < 0 ? 1.25 : 1/1.25, mapPointFromEvent(svg, e.clientX, e.clientY));
+  }, { passive: false });
+
+  // Ziehen zum Verschieben. Pointer-Events decken Maus und Finger ab;
+  // touch-action:none im CSS verhindert, dass daraus ein Seiten-Scroll wird.
+  let dragging = null;
+  svg.addEventListener("pointerdown", (e)=>{
+    if(e.button !== 0 && e.pointerType === "mouse") return;
+    dragging = { id: e.pointerId, startX: e.clientX, startY: e.clientY, view: { ...mapView } };
+    svg.setPointerCapture(e.pointerId);
+    svg.classList.add("is-dragging");
+    // Der Tooltip haengt an einer festen Pixelposition -- beim Verschieben
+    // wuerde er sonst neben seinem Punkt stehenbleiben.
+    const tip = document.getElementById("anMapTip");
+    if(tip) tip.hidden = true;
+  });
+  svg.addEventListener("pointermove", (e)=>{
+    if(!dragging || e.pointerId !== dragging.id) return;
+    const rect = svg.getBoundingClientRect();
+    mapView = clampMapView({
+      ...dragging.view,
+      x: dragging.view.x - (e.clientX - dragging.startX) / rect.width  * dragging.view.w,
+      y: dragging.view.y - (e.clientY - dragging.startY) / rect.height * dragging.view.h
+    });
+    applyMapView();
+  });
+  const endDrag = (e)=>{
+    if(!dragging || e.pointerId !== dragging.id) return;
+    dragging = null;
+    svg.classList.remove("is-dragging");
+  };
+  svg.addEventListener("pointerup", endDrag);
+  svg.addEventListener("pointercancel", endDrag);
+
+  applyMapView();
+}
+
 // Zeichnet Karte + Punkte neu. Wird nach jedem Filterwechsel aufgerufen --
 // reines SVG, deshalb ist ein kompletter Neuaufbau hier unproblematisch.
 function updateVisitorMap(byCountry, viewsWithoutCountry){
@@ -6062,27 +6234,29 @@ function updateVisitorMap(byCountry, viewsWithoutCountry){
   const maxViews = Math.max(1, ...byCountry.map(c => c.views));
   // Die drei staerksten Laender pulsieren -- auf allen gleichzeitig wuerde
   // die Karte unruhig, ohne Puls faende das Auge den Schwerpunkt nicht.
+  // data-r haelt den Grundradius fest: beim Zoomen werden die Punkte daraus
+  // neu berechnet, damit sie nicht einfach mitwachsen (siehe applyMapView).
   const dots = byCountry.map((c, i)=>{
     const { x, y } = mapProject(c.lat, c.lng);
     const share = c.views / maxViews;
     const r = 3 + share * 7;
-    const puls = (i < 3 && !reduceMotion.matches) ? `
-      <circle class="an-map-pulse" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}">
-        <animate attributeName="r" values="${r.toFixed(1)};${(r + 12).toFixed(1)}" dur="2.4s" repeatCount="indefinite"/>
-        <animate attributeName="opacity" values="0.55;0" dur="2.4s" repeatCount="indefinite"/>
-      </circle>` : "";
-    return `${puls}<circle class="an-map-dot" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}"
+    const puls = (i < 3 && !reduceMotion.matches)
+      ? `<circle class="an-map-pulse" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}" data-r="${r.toFixed(1)}"></circle>`
+      : "";
+    return `${puls}<circle class="an-map-dot" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}" data-r="${r.toFixed(1)}"
       fill-opacity="${(0.45 + share * 0.45).toFixed(2)}" tabindex="0" role="img"
       data-idx="${i}" aria-label="${aesc(c.name)}: ${c.visitors} Besucher, ${c.views} Aufrufe"></circle>`;
   }).join("");
 
   stage.innerHTML = `
-    <svg class="an-map-svg" viewBox="0 0 ${WORLD_VIEWBOX.w} ${WORLD_VIEWBOX.h}" role="img"
+    <svg class="an-map-svg" id="anMapSvg" viewBox="0 0 ${WORLD_VIEWBOX.w} ${WORLD_VIEWBOX.h}" role="img"
          aria-label="Weltkarte mit Besucher-Herkunft">
       <path class="an-map-land" d="${WORLD_LAND_PATH}"/>
       ${dots}
     </svg>
     <div class="an-map-tip" id="anMapTip" hidden></div>`;
+
+  wireMapZoom(stage);
 
   // Tooltip: ein einziger Listener auf dem Container statt einer je Punkt.
   const tip = document.getElementById("anMapTip");
@@ -6179,7 +6353,17 @@ async function renderAnalytics(){
         </div>
 
         <div class="an-map-card" id="anMapCard" hidden>
-          <p class="a-block-title" style="margin:0 0 12px">Besucher-Herkunft · Weltkarte</p>
+          <div class="an-map-head">
+            <div>
+              <p class="a-block-title" style="margin:0">Besucher-Herkunft · Weltkarte</p>
+              <p class="an-map-hint-line">Doppelklick oder +/− zum Zoomen · ziehen zum Verschieben</p>
+            </div>
+            <div class="an-map-zoom" role="group" aria-label="Karte zoomen">
+              <button type="button" id="anMapOut" aria-label="Herauszoomen">−</button>
+              <button type="button" id="anMapIn" aria-label="Hineinzoomen">+</button>
+              <button type="button" id="anMapReset" class="an-map-zoom-reset">Zurücksetzen</button>
+            </div>
+          </div>
           <div class="an-map-stage" id="anMapStage">
             <p class="an-map-hint">Wird geladen …</p>
           </div>
@@ -6204,6 +6388,15 @@ async function renderAnalytics(){
     btn.classList.toggle("is-active", btn.dataset.period === analyticsPeriod);
     btn.onclick = ()=>{ analyticsPeriod = btn.dataset.period; refreshAnalyticsBody(); };
   });
+
+  // Zoom-Bedienung der Weltkarte. Die Karte selbst wird bei jedem
+  // Filterwechsel neu gezeichnet, diese Buttons stehen aber ausserhalb und
+  // werden deshalb genau einmal hier verdrahtet. Beim Betreten der Ansicht
+  // startet die Karte immer bei der ganzen Welt.
+  mapView = { x: 0, y: 0, w: WORLD_VIEWBOX.w, h: WORLD_VIEWBOX.h };
+  document.getElementById("anMapIn").onclick    = ()=> zoomMapFromButton(1.6);
+  document.getElementById("anMapOut").onclick   = ()=> zoomMapFromButton(1/1.6);
+  document.getElementById("anMapReset").onclick = ()=> resetMapView();
 
   const selectWrap   = document.getElementById("anCreatorSelectWrap");
   const selectBtn    = document.getElementById("anCreatorSelectBtn");
