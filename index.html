@@ -4235,6 +4235,7 @@ function render(){
   if(adminView === "analytics") return renderAnalytics();
   if(adminView === "revenue") return renderRevenue();
   if(adminView === "shopassign") return renderShopAssign();
+  if(adminView === "adminaccounts") return renderAdminAccounts();
   renderDashboard();
 }
 
@@ -4796,6 +4797,82 @@ async function loadAdminAccountsList(){
     : `<p class="a-empty">Keine Admins gefunden.</p>`;
 }
 
+// Eigener Top-Level-Bereich (adminView === "adminaccounts"), ueber den
+// "Admin-Zugänge"-Knopf in der Kopfzeile erreichbar -- nur fuer den Chef-
+// Admin (state.isSuperAdmin, sowohl der Knopf als auch der Zugriff hier).
+function renderAdminAccounts(){
+  app.innerHTML = `
+    <div class="a-bar">
+      <div class="a-bar-in">
+        <span class="a-brand a-brand-link" id="brandBackToSite" title="Zur Website">STYLE<span>FINDER</span><span class="a-tag">Admin-Zugänge</span></span>
+        <div class="a-bar-actions">
+          <button class="a-btn a-btn-ghost" id="backToDashboard">← Dashboard</button>
+          <button class="a-btn a-btn-ghost" id="signout">Abmelden</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="a-wrap">
+      <div class="a-card">
+        <div class="a-head">
+          <h2 class="a-h2">Admin-Zugänge</h2>
+          <p class="a-sub">Weitere Admins mit eigenem Benutzernamen + Passwort anlegen — diesen Bereich siehst nur du als Chef-Admin.</p>
+        </div>
+        <div class="a-list" id="adminAccList">
+          <p class="a-empty">Lädt …</p>
+        </div>
+        <form id="adminAccForm" class="a-grid" style="margin-top:18px;border-top:1px solid #eff1f4;padding-top:18px">
+          <div><label class="a-label" for="aa-username">Benutzername *</label><input id="aa-username" class="a-field" required placeholder="max" autocomplete="off"></div>
+          <div><label class="a-label" for="aa-password">Passwort *</label><input id="aa-password" class="a-field" type="password" required minlength="6" placeholder="mind. 6 Zeichen" autocomplete="new-password"></div>
+          <div class="a-actions"><button class="a-btn a-btn-primary" id="aa-save">Admin anlegen</button></div>
+        </form>
+      </div>
+    </div>`;
+
+  document.getElementById("backToDashboard").onclick = ()=>{ adminView = "dashboard"; render(); };
+  document.getElementById("brandBackToSite").onclick = async ()=>{ closeAdmin(); await boot(); };
+  document.getElementById("signout").onclick = async ()=>{ await sb.auth.signOut(); refresh(); };
+
+  loadAdminAccountsList();
+
+  const aaForm = document.getElementById("adminAccForm");
+  aaForm.onsubmit = async (e)=>{
+    e.preventDefault();
+    const btn = document.getElementById("aa-save");
+    const username = document.getElementById("aa-username").value.trim();
+    const password = document.getElementById("aa-password").value;
+    btn.disabled = true;
+    btn.textContent = "Legt an …";
+    const { data, error } = await sb.functions.invoke("manage-admins", { body: { action: "create", username, password } });
+    btn.disabled = false;
+    btn.textContent = "Admin anlegen";
+    if(error) return atoast(await extractFnError(error), "err");
+    atoast(`Admin "${data.username}" angelegt.`);
+    aaForm.reset();
+    loadAdminAccountsList();
+  };
+
+  document.getElementById("adminAccList").addEventListener("click", async (e)=>{
+    const delBtn = e.target.closest("[data-del-admin]");
+    if(delBtn){
+      if(!confirm("Diesen Admin-Zugang wirklich löschen? Das lässt sich nicht rückgängig machen.")) return;
+      const { error } = await sb.functions.invoke("manage-admins", { body: { action: "delete", userId: delBtn.dataset.delAdmin } });
+      if(error) return atoast(await extractFnError(error), "err");
+      atoast("Admin gelöscht.");
+      loadAdminAccountsList();
+      return;
+    }
+    const resetBtn = e.target.closest("[data-reset-admin]");
+    if(resetBtn){
+      const newPw = prompt("Neues Passwort für diesen Admin (mind. 6 Zeichen):");
+      if(!newPw) return;
+      const { error } = await sb.functions.invoke("manage-admins", { body: { action: "reset_password", userId: resetBtn.dataset.resetAdmin, newPassword: newPw } });
+      if(error) return atoast(await extractFnError(error), "err");
+      atoast("Passwort zurückgesetzt.");
+    }
+  });
+}
+
 function renderDashboard(){
   const isAllMode = state.activeId === ALL_CREATOR_ID;
   const active = isAllMode ? null : (state.creators.find(c => c.id === state.activeId) ?? null);
@@ -4818,6 +4895,7 @@ function renderDashboard(){
           <button class="a-btn a-btn-ghost" id="openAnalytics">Analytics</button>
           <button class="a-btn a-btn-ghost" id="openRevenue">Umsatz</button>
           <button class="a-btn a-btn-ghost" id="openShopAssign">Shop-Zuweisung</button>
+          ${state.isSuperAdmin ? `<button class="a-btn a-btn-ghost" id="openAdminAccounts">Admin-Zugänge</button>` : ""}
           <button class="a-btn a-btn-ghost" id="signout">Abmelden</button>
         </div>
       </div>
@@ -5106,22 +5184,6 @@ function renderDashboard(){
           </div>
         </form>
       </div>
-
-      ${state.isSuperAdmin ? `
-      <div class="a-card">
-        <div class="a-head">
-          <h2 class="a-h2">Admin-Zugänge</h2>
-          <p class="a-sub">Weitere Admins mit eigenem Benutzernamen + Passwort anlegen — diesen Bereich siehst nur du als Chef-Admin.</p>
-        </div>
-        <div class="a-list" id="adminAccList">
-          <p class="a-empty">Lädt …</p>
-        </div>
-        <form id="adminAccForm" class="a-grid" style="margin-top:18px;border-top:1px solid #eff1f4;padding-top:18px">
-          <div><label class="a-label" for="aa-username">Benutzername *</label><input id="aa-username" class="a-field" required placeholder="max" autocomplete="off"></div>
-          <div><label class="a-label" for="aa-password">Passwort *</label><input id="aa-password" class="a-field" type="password" required minlength="6" placeholder="mind. 6 Zeichen" autocomplete="new-password"></div>
-          <div class="a-actions"><button class="a-btn a-btn-primary" id="aa-save">Admin anlegen</button></div>
-        </form>
-      </div>` : ""}
 
       ${(active || isAllMode) ? `
       ${!isAllMode ? `
@@ -7587,6 +7649,12 @@ function wireDashboard(){
     render();
   };
 
+  const openAdminAccountsBtn = document.getElementById("openAdminAccounts");
+  if(openAdminAccountsBtn) openAdminAccountsBtn.onclick = ()=>{
+    adminView = "adminaccounts";
+    render();
+  };
+
   // ---- Creator-Umschalter ----
   const swWrap = document.getElementById("switchWrap");
   const swBtn  = document.getElementById("switchBtn");
@@ -8631,48 +8699,6 @@ function wireDashboard(){
     state.products = await loadProducts(state.activeId);
     render();
   };
-
-  // ---- Admin-Zugänge (nur Chef-Admin) ----
-  if(state.isSuperAdmin){
-    loadAdminAccountsList();
-
-    const aaForm = document.getElementById("adminAccForm");
-    if(aaForm) aaForm.onsubmit = async (e)=>{
-      e.preventDefault();
-      const btn = document.getElementById("aa-save");
-      const username = document.getElementById("aa-username").value.trim();
-      const password = document.getElementById("aa-password").value;
-      btn.disabled = true;
-      btn.textContent = "Legt an …";
-      const { data, error } = await sb.functions.invoke("manage-admins", { body: { action: "create", username, password } });
-      btn.disabled = false;
-      btn.textContent = "Admin anlegen";
-      if(error) return atoast(await extractFnError(error), "err");
-      atoast(`Admin "${data.username}" angelegt.`);
-      aaForm.reset();
-      loadAdminAccountsList();
-    };
-
-    document.getElementById("adminAccList")?.addEventListener("click", async (e)=>{
-      const delBtn = e.target.closest("[data-del-admin]");
-      if(delBtn){
-        if(!confirm("Diesen Admin-Zugang wirklich löschen? Das lässt sich nicht rückgängig machen.")) return;
-        const { error } = await sb.functions.invoke("manage-admins", { body: { action: "delete", userId: delBtn.dataset.delAdmin } });
-        if(error) return atoast(await extractFnError(error), "err");
-        atoast("Admin gelöscht.");
-        loadAdminAccountsList();
-        return;
-      }
-      const resetBtn = e.target.closest("[data-reset-admin]");
-      if(resetBtn){
-        const newPw = prompt("Neues Passwort für diesen Admin (mind. 6 Zeichen):");
-        if(!newPw) return;
-        const { error } = await sb.functions.invoke("manage-admins", { body: { action: "reset_password", userId: resetBtn.dataset.resetAdmin, newPassword: newPw } });
-        if(error) return atoast(await extractFnError(error), "err");
-        atoast("Passwort zurückgesetzt.");
-      }
-    });
-  }
 }
 
 
