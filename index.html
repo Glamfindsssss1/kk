@@ -2404,8 +2404,8 @@ function applyCreator(){
   document.getElementById("creatorHandle").textContent = CREATOR.handle;
   document.getElementById("creatorNameMain").textContent = CREATOR.name;
   document.getElementById("creatorNameSub").textContent = CREATOR.nameSub;
-  document.getElementById("tiktokLink").href = CREATOR.tiktokUrl;
-  document.getElementById("instagramLink").href = CREATOR.instagramUrl;
+  document.getElementById("tiktokLink").href = safeUrl(CREATOR.tiktokUrl);
+  document.getElementById("instagramLink").href = safeUrl(CREATOR.instagramUrl);
   document.getElementById("promoLine1").textContent = CREATOR.promoLine1;
 
   // Avatar: Bild wenn vorhanden, sonst Initiale
@@ -2462,7 +2462,7 @@ document.getElementById("loginBtn").onclick = ()=>{
   // Neuer Tab statt window.location.href -- sonst verlaesst der Besucher
   // beim Klick die Website komplett, statt nur den Affiliate-Link daneben
   // geoeffnet zu bekommen (wie bei allen anderen Buttons/Links hier).
-  window.open(CREATOR.loginUrl, "_blank", "noopener,noreferrer");
+  window.open(safeUrl(CREATOR.loginUrl), "_blank", "noopener,noreferrer");
 };
 
 const avatarEl = document.getElementById("creatorAvatar");
@@ -2881,7 +2881,7 @@ function buildProductCard(p, indexInGrid = 0){
       <div class="p-buy-row">
         <span class="p-price">${formatPrice(p.price)}</span>
         <a class="p-buy"
-           href="${aesc(buyHrefRaw || '#')}"
+           href="${aesc(safeUrl(buyHrefRaw) || '#')}"
            ${buyHrefRaw ? 'target="_blank" rel="noopener noreferrer sponsored"' : ''}
            aria-label="${aesc(label)}: ${aesc(p.name)}, ${formatPrice(p.price)}">${aesc(label)}</a>
       </div>
@@ -3996,6 +3996,19 @@ let newProductStyles = [];
 const aesc = (s) => String(s ?? "").replace(/[&<>"']/g, c =>
   ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 
+// Laesst nur echte Web-/Mail-Links durch. Ohne diese Pruefung koennte ein
+// Admin-Feld (Produkt-, Promo-, How-to-, TikTok-/Instagram-Link) auf
+// "javascript:..." gesetzt werden -- beim Klick wuerde das Skript dann im
+// Browser JEDES Besuchers laufen (gespeichertes XSS ueber sonst harmlose
+// Link-Felder). data:/vbscript: & Co. werden aus demselben Grund geblockt.
+function safeUrl(u){
+  const s = String(u ?? "").trim();
+  if(!s) return "";
+  if(/^(https?|mailto|tel):/i.test(s)) return s;
+  if(/^[a-z][a-z0-9+.-]*:/i.test(s)) return "";   // andere Schemata (javascript:, data:, ...)
+  return s;   // relative/schema-lose Links (z.B. "#", "/x") bleiben erlaubt
+}
+
 function atoast(text, kind = "ok"){
   toastEl.className = "toast " + kind;
   toastEl.textContent = text;
@@ -4681,7 +4694,7 @@ function buildAdminProductRows(items, all, catLabel){
                 </div>`}
                 <div class="a-tools">
                   ${p.product_url
-                    ? `<a class="a-icon" href="${aesc(p.product_url)}" target="_blank" rel="noopener" title="Link testen" aria-label="Link testen: ${aesc(p.title)}">\u2197</a>`
+                    ? `<a class="a-icon" href="${aesc(safeUrl(p.product_url))}" target="_blank" rel="noopener" title="Link testen" aria-label="Link testen: ${aesc(p.title)}">\u2197</a>`
                     : `<span class="a-nolink" title="Kein Link hinterlegt">kein Link</span>`}
                   ${isAllMode ? "" : `
                   <button class="a-icon a-icon-star ${p.is_featured ? "is-on" : ""}" data-star="${p.id}"
@@ -9406,7 +9419,7 @@ async function loadData(){
   const howtoBtn = document.getElementById("howtoBtn");
   if(howtoBtn){
     if(howtoUrl){
-      howtoBtn.href = howtoUrl;
+      howtoBtn.href = safeUrl(howtoUrl);
       document.getElementById("howtoLabel").textContent = howtoLabel;
       howtoBtn.hidden = false;
     } else {
@@ -9573,7 +9586,7 @@ function wireSignupPopup(){
     subEl.textContent = `Register up on ${providerName} and support our service.`;
     legalEl.innerHTML = `By using ${providerName} Spreadsheet, you agree to our <a href="#" tabindex="-1">Terms and Legal Policies</a>.`;
 
-    ctaEl.href = CREATOR.loginUrl || "#";
+    ctaEl.href = safeUrl(CREATOR.loginUrl) || "#";
 
     document.body.classList.add("signup-popup-open");
   }
@@ -9630,7 +9643,7 @@ function wireSignupPopup(){
     }
     nameEl.textContent = CREATOR.promoLine1 || CREATOR.name || "";
     subEl.textContent = "Registriere dich f\u00fcr maximalen Rabatt.";
-    ctaEl.href = CREATOR.loginUrl || "#";
+    ctaEl.href = safeUrl(CREATOR.loginUrl) || "#";
 
     // Der Coupon-Text folgt dem Affiliate-Button des jeweiligen Creators:
     // steht dort z.B. "REGISTER HERE FOR 40% OFF", zeigt die Leiste
@@ -9659,7 +9672,7 @@ function wireSignupPopup(){
     const providerName = (creatorAffiliate && AFFILIATE_AGENTS[creatorAffiliate.agentId]?.displayName) || "HipoBuy";
     nameEl.textContent = `HOW TO BUY FROM ${providerName} 🎉`;
     subEl.textContent = "Learn how to order safely from China";
-    ctaEl.href = CREATOR.howtoUrl || "#";
+    ctaEl.href = safeUrl(CREATOR.howtoUrl) || "#";
     ctaTextEl.textContent = "TUTORIAL";
   }
 
