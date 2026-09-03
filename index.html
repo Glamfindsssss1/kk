@@ -3730,6 +3730,18 @@ let productFilterQuery  = "";
 let bulkSelectMode = false;
 let selectedProductIds = new Set();
 
+// Kategorie/Unterkategorie/Styles im "Produkt hinzufügen"-Formular bleiben
+// nach dem Speichern erhalten, statt bei jedem Re-Render auf die jeweils
+// erste Option zurueckzuspringen -- legt man mehrere Produkte derselben
+// Kategorie/desselben Styles hintereinander an, muss man sie so nicht jedes
+// Mal neu auswaehlen. null/"" = noch keine eigene Wahl getroffen, dann greift
+// wie bisher die erste Kategorie/"Keine". Werden beim Creator-Wechsel
+// zurueckgesetzt (siehe data-pick-Handler), da Kategorien/Styles pro Creator
+// unterschiedlich sein koennen.
+let newProductCategory = null;
+let newProductSubcat = "";
+let newProductStyles = [];
+
 const aesc = (s) => String(s ?? "").replace(/[&<>"']/g, c =>
   ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 
@@ -4678,7 +4690,10 @@ function getSelectedStyleTags(prefix){
 // buildStyleMultiSelectHtml gebautes Dropdown -- gleiches Klick-ausserhalb-/
 // Escape-Verhalten wie die uebrigen eigenen Dropdowns im Dashboard
 // (a-switch, an-select, cur-menu).
-function wireStyleMultiSelect(prefix){
+// onChange (optional) wird bei jeder Aenderung mit den aktuell angehakten
+// Style-Tags aufgerufen -- nutzt das Formular fuer "Produkt hinzufügen", um
+// newProductStyles live mitzupflegen (siehe renderDashboard).
+function wireStyleMultiSelect(prefix, onChange){
   const wrap = document.getElementById(`${prefix}Select`);
   const btn  = document.getElementById(`${prefix}Btn`);
   const menu = document.getElementById(`${prefix}Menu`);
@@ -4701,6 +4716,7 @@ function wireStyleMultiSelect(prefix){
     cb.addEventListener("change", ()=>{
       const chosen = getSelectedStyleTags(prefix);
       labelEl.textContent = chosen.length ? chosen.join(", ") : "Kein Style";
+      if(onChange) onChange(chosen);
     });
   });
 }
@@ -4709,6 +4725,13 @@ function renderDashboard(){
   const isAllMode = state.activeId === ALL_CREATOR_ID;
   const active = isAllMode ? null : (state.creators.find(c => c.id === state.activeId) ?? null);
   const catLabel = k => (state.categories.find(c => c.key === k) || {}).label || k;
+
+  // Fallback auf die erste Kategorie, falls im "Produkt hinzufügen"-Formular
+  // noch keine eigene Wahl gemerkt ist (oder die gemerkte Kategorie -- z.B.
+  // nach dem Loeschen -- gar nicht mehr existiert).
+  const effectiveNewProductCategory = (newProductCategory && state.categories.some(c => c.key === newProductCategory))
+    ? newProductCategory
+    : state.categories[0]?.key;
 
   app.innerHTML = `
     <div class="a-bar">
@@ -5029,18 +5052,18 @@ function renderDashboard(){
 
           <div>
             <label class="a-label" for="p-cat">Kategorie</label>
-            <select id="p-cat" class="a-field">${state.categories.map(c=>`<option value="${aesc(c.key)}">${aesc(c.label)}</option>`).join("")}</select>
+            <select id="p-cat" class="a-field">${state.categories.map(c=>`<option value="${aesc(c.key)}" ${c.key===effectiveNewProductCategory?"selected":""}>${aesc(c.label)}</option>`).join("")}</select>
           </div>
           <div>
             <label class="a-label" for="p-subcat">Unterkategorie</label>
             <select id="p-subcat" class="a-field">
-              <option value="">Keine</option>
-              ${state.subcategories.filter(s => s.category_key === state.categories[0]?.key).map(s=>`<option value="${aesc(s.key)}">${aesc(s.label)}</option>`).join("")}
+              <option value="" ${newProductSubcat===""?"selected":""}>Keine</option>
+              ${state.subcategories.filter(s => s.category_key === effectiveNewProductCategory).map(s=>`<option value="${aesc(s.key)}" ${s.key===newProductSubcat?"selected":""}>${aesc(s.label)}</option>`).join("")}
             </select>
           </div>
           <div>
             <label class="a-label" id="p-style-label-el">Styles</label>
-            ${buildStyleMultiSelectHtml("p-style", [])}
+            ${buildStyleMultiSelectHtml("p-style", newProductStyles)}
           </div>
           <div>
             <label class="a-label" for="p-position">Position</label>
@@ -7513,6 +7536,7 @@ function wireDashboard(){
       editingProductId = null;
       bulkSelectMode = false; selectedProductIds.clear();
       productFilterCat = "all"; productFilterSubcat = "all"; productFilterStyle = "all"; productFilterQuery = "";
+      newProductCategory = null; newProductSubcat = ""; newProductStyles = [];
       await loadCategoriesFor(state.activeId);
       state.products = await loadProducts(state.activeId);
       return render();
@@ -8248,10 +8272,13 @@ function wireDashboard(){
   const pCatEl = document.getElementById("p-cat");
   const pSubcatEl = document.getElementById("p-subcat");
   if(pCatEl && pSubcatEl) pCatEl.onchange = ()=>{
+    newProductCategory = pCatEl.value;
+    newProductSubcat = ""; // Unterkategorie gehoert zur alten Kategorie, gilt nicht mehr
     const opts = state.subcategories.filter(s => s.category_key === pCatEl.value);
     pSubcatEl.innerHTML = `<option value="">Keine</option>` +
       opts.map(s=>`<option value="${aesc(s.key)}">${aesc(s.label)}</option>`).join("");
   };
+  if(pSubcatEl) pSubcatEl.onchange = ()=>{ newProductSubcat = pSubcatEl.value; };
 
   // Bestimmt den sort_order-Wert fuer ein neu angelegtes Produkt anhand der
   // gewaehlten Position. "top"/"bottom" haengen ganz vorne/hinten an (ausserhalb
@@ -8423,7 +8450,7 @@ function wireDashboard(){
   // Style-Mehrfachauswahl in "Produkt hinzufügen" (immer vorhanden) und
   // "Produkt bearbeiten" (nur wenn gerade eine Zeile aufgeklappt ist --
   // wireStyleMultiSelect() macht selbst nichts, wenn die Elemente fehlen).
-  wireStyleMultiSelect("p-style");
+  wireStyleMultiSelect("p-style", chosen => { newProductStyles = chosen; });
   wireStyleMultiSelect("e-style");
 
   // ---- Produktfilter: Kategorie/Style loesen sofort aus, Suche debounced,
