@@ -2239,7 +2239,10 @@ document.getElementById("loginBtn").setAttribute("aria-label",
 document.getElementById("loginBtn").onclick = ()=>{
   if(!CREATOR.loginUrl || CREATOR.loginUrl === "#") return;   // ohne hinterlegtes Ziel passiert nichts
   if(CREATOR_ROW) trackEvent("banner_click", CREATOR_ROW.slug);
-  window.location.href = CREATOR.loginUrl;
+  // Neuer Tab statt window.location.href -- sonst verlaesst der Besucher
+  // beim Klick die Website komplett, statt nur den Affiliate-Link daneben
+  // geoeffnet zu bekommen (wie bei allen anderen Buttons/Links hier).
+  window.open(CREATOR.loginUrl, "_blank", "noopener,noreferrer");
 };
 
 const avatarEl = document.getElementById("creatorAvatar");
