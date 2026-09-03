@@ -2298,16 +2298,20 @@ let CREATOR_ROW = null;
 // Baut die oeffentliche Storefront-URL aus einem Slug -- genutzt sowohl im
 // Admin-Bearbeiten-Formular (Live-Vorschau beim Tippen) als auch im immer
 // sichtbaren Link-Bereich fuer den aktuell ausgewaehlten Creator.
-// WICHTIG: nutzt bewusst das ?creator=slug-Format statt eines sauberen Pfads
-// (/slug) -- laeuft die Seite (wie aktuell) unter einem Unterordner, z.B.
-// GitHub Pages als username.github.io/kk/, wuerde ein saubererer Pfad wie
-// .../kk/cocofinds von GitHub direkt mit 404 beantwortet (nie bei index.html
-// ankommen), weil dort keine echte Datei/kein Ordner "cocofinds" existiert.
-// Das Query-Format bleibt dagegen IMMER im selben Verzeichnis wie index.html
-// und funktioniert deshalb unabhaengig davon, ob die Seite auf einer
-// Domain-Wurzel oder einem Unterordner laeuft. slugFromPath() unterstuetzt
-// sauberere Pfade weiterhin als Fallback, falls mal auf eine echte
-// Domain-Wurzel mit Server-Rewrite umgezogen wird.
+// Zwei moegliche Formate, automatisch anhand des aktuellen Hostings gewaehlt:
+//   - Laeuft die Seite in einem UNTERORDNER (z.B. GitHub Pages als
+//     username.github.io/kk/) -> ?creator=slug. Ein sauberer Pfad wie
+//     .../kk/cocofinds wuerde dort von GitHub direkt mit 404 beantwortet
+//     (nie bei index.html ankommen), weil kein echter Ordner "cocofinds"
+//     existiert -- das Query-Format bleibt dagegen IMMER im selben
+//     Verzeichnis wie index.html und funktioniert deshalb ueberall.
+//   - Laeuft die Seite auf einer DOMAIN-WURZEL (eigene Domain über Netlify/
+//     Vercel, kein Unterordner) -> sauberer Pfad wie https://domain.com/kevin.
+//     Setzt eine Rewrite-Regel voraus, die JEDE Adresse auf index.html
+//     umleitet (siehe _redirects/netlify.toml fuer Netlify, vercel.json fuer
+//     Vercel, beide im Repo-Wurzelverzeichnis) -- ohne die wuerde auch hier
+//     ein "Seite nicht gefunden" kommen. slugFromPath() weiter oben liest
+//     genau dieses Format wieder aus.
 // Fallback-Domain fuer file://-Tests, wo window.location.origin nicht brauchbar ist.
 function buildShareLink(slug){
   if(!slug) return "";
@@ -2317,6 +2321,9 @@ function buildShareLink(slug){
   // Verzeichnis, in dem index.html liegt -- alles nach dem letzten "/" im
   // Pfad abschneiden (deckt sowohl "/kk/" als auch "/kk/index.html" ab).
   const dir = window.location.pathname.replace(/[^/]*$/, "");
+  if(dir === "/"){
+    return `${window.location.origin}/${encodeURIComponent(slug)}`;
+  }
   return `${window.location.origin}${dir}?creator=${encodeURIComponent(slug)}`;
 }
 

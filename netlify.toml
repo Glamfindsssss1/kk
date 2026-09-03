@@ -1,0 +1,16 @@
+# Diese Seite ist eine einzige index.html ohne Build-Schritt -- Netlify
+# soll sie unveraendert ausliefern, das Repo-Wurzelverzeichnis reicht als
+# "publish"-Ordner.
+[build]
+  publish = "."
+
+# Jede Adresse (z.B. /kevin, das eigentlich keine echte Datei ist) auf
+# index.html umleiten, statt "Seite nicht gefunden" zu zeigen -- status 200
+# heisst "umschreiben", nicht "weiterleiten": die Adresse in der Browser-
+# Adresszeile bleibt /kevin, nur ausgeliefert wird index.html. Das
+# JavaScript darin liest den Pfad danach selbst aus (siehe slugFromPath()
+# in index.html) und zeigt den passenden Creator-Shop.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
