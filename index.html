@@ -4049,24 +4049,37 @@ async function importProductsFromCSV(file){
       skipped.push(`Zeile ${i+2}: Unterkategorie "${rawSubcategory}" nicht bei Kategorie "${rawCategory}" gefunden`);
       return;
     }
-    const fields = {
+    const rowId = idx.id !== undefined ? (r[idx.id] ?? "").trim() : "";
+
+    if(rowId){
+      // Update einer bestehenden Zeile per upsert(): nur Spalten mitschicken,
+      // die in DIESER CSV-Datei ueberhaupt eine Kopfzeile haben. Eine Spalte
+      // einfach wegzulassen (statt sie mit null/[] zu befuellen) heisst fuer
+      // upsert() "nicht anfassen" -- baut man sich z.B. eine eigene CSV nur
+      // mit id+price zum Massen-Preis-Update, bleiben Style/Bild/Link der
+      // Produkte dabei unangetastet, statt bei jeder aktualisierten Zeile
+      // stillschweigend geleert zu werden.
+      const updateFields = { title, category: categoryKey };
+      if(idx.price !== undefined) updateFields.price = parsePriceInput(r[idx.price]);
+      if(idx.subcategory !== undefined) updateFields.subcategory = subcategoryKey;
+      if(idx.style !== undefined) updateFields.style_tags = splitStyleTags(r[idx.style]);
+      if(idx.image_url !== undefined) updateFields.image_url = (r[idx.image_url] ?? "").trim() || null;
+      if(idx.weidian_url !== undefined) updateFields.product_url = (r[idx.weidian_url] ?? "").trim() || null;
+      toUpdate.push({ id: rowId, ...updateFields });
+      return;
+    }
+
+    // Neues Produkt: hier IMMER alle Spalten setzen (auch mit Leer-/Null-
+    // Werten) -- es gibt noch keine bestehende Zeile, deren Werte durch
+    // Weglassen geschuetzt werden muessten.
+    toInsert.push({
       title,
       price: idx.price !== undefined ? parsePriceInput(r[idx.price]) : 0,
       category: categoryKey,
       subcategory: subcategoryKey,
       style_tags: idx.style !== undefined ? splitStyleTags(r[idx.style]) : [],
       image_url: idx.image_url !== undefined ? (r[idx.image_url] ?? "").trim() || null : null,
-      product_url: idx.weidian_url !== undefined ? (r[idx.weidian_url] ?? "").trim() || null : null
-    };
-
-    const rowId = idx.id !== undefined ? (r[idx.id] ?? "").trim() : "";
-    if(rowId){
-      toUpdate.push({ id: rowId, ...fields });
-      return;
-    }
-
-    toInsert.push({
-      ...fields,
+      product_url: idx.weidian_url !== undefined ? (r[idx.weidian_url] ?? "").trim() || null : null,
       creator_id: state.activeId,
       is_trend: false,
       sort_order: last0 + (toInsert.length + 1) * 10
