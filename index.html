@@ -854,6 +854,28 @@
   .an-select-opt-check{margin-left:auto;flex:0 0 auto;width:15px;height:15px;opacity:0;}
   .an-select-opt[aria-selected="true"] .an-select-opt-check{opacity:1;}
 
+  /* Style-Tags-Mehrfachauswahl (Produkt hinzufügen/bearbeiten) — Knopf sieht
+     aus wie ein normales .a-field, Menü bleibt beim Ankreuzen offen (anders
+     als .an-select, das bei Auswahl sofort schliesst). */
+  .a-multiselect{position:relative;}
+  .a-multiselect-btn{display:flex;align-items:center;justify-content:space-between;gap:8px;
+    cursor:pointer;text-align:left;}
+  .a-multiselect-btn span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .a-multiselect-btn .a-caret{width:15px;height:15px;}
+  .a-multiselect-btn[aria-expanded="true"]{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,102,245,.16);}
+  .a-multiselect-btn[aria-expanded="true"] .a-caret{transform:rotate(180deg);}
+  .a-multiselect-menu{position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:20;
+    background:#fff;border:1px solid var(--border);border-radius:14px;padding:6px;
+    box-shadow:0 18px 44px rgba(20,22,26,.16);max-height:240px;overflow-y:auto;
+    opacity:0;visibility:hidden;transform:translateY(-6px);
+    transition:opacity .14s ease, transform .14s ease;}
+  .a-multiselect.open .a-multiselect-menu{opacity:1;visibility:visible;transform:none;}
+  .a-multiselect-opt{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;
+    cursor:pointer;font-size:13px;font-weight:600;color:var(--text);transition:background-color .12s ease;}
+  .a-multiselect-opt:hover{background:#f1f2f5;}
+  .a-multiselect-opt input{width:17px;height:17px;accent-color:var(--accent);cursor:pointer;flex:0 0 auto;}
+  .a-multiselect-empty{padding:8px 10px;font-size:13px;color:var(--muted);margin:0;}
+
   .an-kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:24px;}
   .an-kpi{border:1px solid var(--border);border-radius:16px;padding:18px 20px;background:#fafbfc;
     text-align:left;font-family:inherit;cursor:pointer;transition:border-color .15s ease, background-color .15s ease;}
@@ -2467,7 +2489,7 @@ function buildSearchFields(p){
   const catLabel = cat ? (T().cats[p.cat] || cat.label) : "";
   return {
     titleWords: norm(p.name).split(/\s+/).filter(Boolean),
-    styleWords: norm(p.style || "").split(/\s+/).filter(Boolean),
+    styleWords: norm((p.styles || []).join(" ")).split(/\s+/).filter(Boolean),
     categoryWords: norm(catLabel).split(/\s+/).filter(Boolean)
   };
 }
@@ -2510,7 +2532,7 @@ function filtered(){
     if(wishOnly && !pageWishlist.includes(p.id)) return false;
     if(activeCat !== "all" && p.cat !== activeCat) return false;
     if(activeCat !== "all" && activeSubcat !== "all" && p.subcat !== activeSubcat) return false;
-    if(activeStyle !== "ALL" && p.style !== activeStyle) return false;
+    if(activeStyle !== "ALL" && !p.styles.includes(activeStyle)) return false;
     if(p.price < priceMin || p.price > priceMax) return false;
     return true;
   });
@@ -2787,9 +2809,15 @@ function staggerByStyle(items){
   const styleOrder = STYLES.slice(1); // STYLES[0] ist immer "ALL", zaehlt nicht als eigener Style
   // items kommt bereits sort_order-sortiert von der DB -- der Index hier dient
   // als Rang-Ersatz, weil das gemappte Produktobjekt sort_order selbst nicht mitfuehrt.
-  const withRank = items.map((p, rank) => ({ p, rank }));
-  const buckets = styleOrder.map(s => withRank.filter(x => x.p.style === s));
-  const noStyle = withRank.filter(x => !styleOrder.includes(x.p.style));
+  // Ein Produkt mit mehreren Styles landet hier trotzdem nur in EINEM Bucket
+  // (seinem ersten bekannten Style) -- sonst wuerde es in jedem seiner Style-
+  // Bloecke nochmal auftauchen und in der "Alle Styles"-Ansicht doppelt erscheinen.
+  const withRank = items.map((p, rank) => ({
+    p, rank,
+    primaryStyle: (p.styles || []).find(s => styleOrder.includes(s)) || null
+  }));
+  const buckets = styleOrder.map(s => withRank.filter(x => x.primaryStyle === s));
+  const noStyle = withRank.filter(x => x.primaryStyle === null);
   if(noStyle.length) buckets.push(noStyle);
 
   const result = [];
@@ -3308,7 +3336,7 @@ function renderSearchHits(hits, soInner){
       </span>
       <span class="so-price">${formatPrice(p.price)}</span>`;
     a.querySelector(".so-name").textContent = p.name;
-    a.querySelector(".so-meta").textContent = p.style;
+    a.querySelector(".so-meta").textContent = (p.styles || []).join(", ");
     a.addEventListener("click", ()=>{
       rememberTerm(searchQuery);
       goToProduct(p);
@@ -3800,8 +3828,11 @@ function renderAdminError(e){
 // ----------------------------------------------------------- CSV Export/Import
 // CSV-Spalten nach aussen: title, price, category, style, image_url, weidian_url.
 // Intern heissen die Supabase-Spalten anders (category ist ein Key kein Label,
-// style_tag statt style, product_url statt weidian_url) — die beiden Mapper
-// unten sind die einzige Stelle, die diesen Unterschied kennen muss.
+// style_tags statt style, product_url statt weidian_url) — die beiden Mapper
+// unten sind die einzige Stelle, die diesen Unterschied kennen muss. Ein Produkt
+// kann mehrere Styles haben (style_tags ist ein Array) -- in der CSV-Spalte
+// "style" stehen sie durch "; " getrennt in einem einzigen Feld (siehe
+// joinStyleTags/splitStyleTags), statt mehrerer Spalten.
 // "id" und "creator" sind optional beim Import: leer/fehlend -> neues Produkt
 // anlegen (wie bisher). Ist "id" gesetzt UND passt zu einem bestehenden
 // Produkt, wird stattdessen dessen Zeile aktualisiert (siehe importProductsFromCSV) --
@@ -3809,6 +3840,12 @@ function renderAdminError(e){
 // Shops fuer dasselbe Produkt) per CSV-Export/-Bearbeiten/-Re-Import pflegen,
 // ohne dass jede Kopie einzeln im Admin angeklickt werden muss.
 const CSV_COLUMNS = ["id", "creator", "title", "price", "category", "subcategory", "style", "image_url", "weidian_url"];
+
+// Wandelt das style_tags-Array in ein einzelnes CSV-Feld um und zurueck.
+// "; " statt "," als Trennzeichen, damit ein Komma in einem Style-Namen nicht
+// mit dem CSV-Spaltentrenner kollidiert.
+function joinStyleTags(tags){ return (tags || []).join("; "); }
+function splitStyleTags(raw){ return String(raw ?? "").split(";").map(s => s.trim()).filter(Boolean); }
 
 function csvEscapeField(v){
   const s = v === null || v === undefined ? "" : String(v);
@@ -3831,7 +3868,7 @@ function productToCsvRow(p, catLabel, subcatLabel, creatorLabel){
     p.price ?? 0,
     catLabel(p.category) ?? p.category ?? "",
     p.subcategory ? (subcatLabel(p.category, p.subcategory) ?? p.subcategory) : "",
-    p.style_tag ?? "",
+    joinStyleTags(p.style_tags),
     p.image_url ?? "",
     p.product_url ?? ""
   ].map(csvEscapeField).join(",");
@@ -4017,7 +4054,7 @@ async function importProductsFromCSV(file){
       price: idx.price !== undefined ? parsePriceInput(r[idx.price]) : 0,
       category: categoryKey,
       subcategory: subcategoryKey,
-      style_tag: idx.style !== undefined ? (r[idx.style] ?? "").trim() || null : null,
+      style_tags: idx.style !== undefined ? splitStyleTags(r[idx.style]) : [],
       image_url: idx.image_url !== undefined ? (r[idx.image_url] ?? "").trim() || null : null,
       product_url: idx.weidian_url !== undefined ? (r[idx.weidian_url] ?? "").trim() || null : null
     };
@@ -4291,7 +4328,7 @@ function filteredAdminProducts(){
   return state.products.filter(p=>{
     if(productFilterCat !== "all" && p.category !== productFilterCat) return false;
     if(productFilterSubcat !== "all" && (p.subcategory || "") !== productFilterSubcat) return false;
-    if(productFilterStyle !== "all" && (p.style_tag || "") !== productFilterStyle) return false;
+    if(productFilterStyle !== "all" && !(p.style_tags || []).includes(productFilterStyle)) return false;
     if(q && !p.title.toLowerCase().includes(q)) return false;
     return true;
   });
@@ -4347,7 +4384,7 @@ function buildAdminProductRows(items, all, catLabel){
                 <div class="a-row-main">
                   <div class="a-row-title">${aesc(p.title)}</div>
                   <div class="a-row-meta">
-                    ${Number(p.price).toFixed(2)} € \u00b7 ${aesc(catLabel(p.category))}${p.style_tag ? " \u00b7 " + aesc(p.style_tag) : ""}
+                    ${Number(p.price).toFixed(2)} € \u00b7 ${aesc(catLabel(p.category))}${p.style_tags?.length ? " \u00b7 " + aesc(joinStyleTags(p.style_tags)) : ""}
                     ${p.is_trend ? `<span class="a-pill a-pill-trend">Trend</span>` : ""}
                     ${p.is_featured ? `<span class="a-pill a-pill-featured">\u2b50 Sammlung</span>` : ""}
                     ${isAllMode ? `<span class="a-pill">bei ${groupSize(p.group_id)} Creatorn</span>` : ""}
@@ -4413,8 +4450,8 @@ function buildAdminProductRows(items, all, catLabel){
                     </select>
                   </div>
                   <div>
-                    <label class="a-label" for="e-style">Style-Tag</label>
-                    <input id="e-style" class="a-field" list="styles" placeholder="OLDMONEY" value="${aesc(p.style_tag || "")}">
+                    <label class="a-label" id="e-style-label-el">Styles</label>
+                    ${buildStyleMultiSelectHtml("e-style", p.style_tags)}
                   </div>
 
                   <div>
@@ -4585,6 +4622,74 @@ function updateBulkBarUI(){
     const allSelected = items.length > 0 && items.every(p => selectedProductIds.has(p.id));
     selAllBtn.textContent = allSelected ? "Alle abwählen" : "Alle auswählen";
   }
+}
+
+// Baut das Mehrfachauswahl-Dropdown fuer Style-Tags -- "Produkt hinzufügen"
+// und "Produkt bearbeiten" teilen sich dieses Markup, nur die ID-Vorsilbe
+// (fuer eindeutige Element-IDs) und die vorausgewaehlten Tags unterscheiden
+// sich. Echte Checkboxen statt einer eigenen Auswahl-Logik in JS -- beim
+// Speichern werden einfach die gerade angehakten ausgelesen (siehe
+// wireStyleMultiSelect/getSelectedStyleTags).
+function buildStyleMultiSelectHtml(prefix, selectedTags){
+  const selected = new Set(selectedTags || []);
+  const label = selected.size ? Array.from(selected).join(", ") : "Kein Style";
+  return `
+    <div class="a-multiselect" id="${prefix}Select">
+      <button type="button" class="a-field a-multiselect-btn" id="${prefix}Btn"
+              aria-haspopup="listbox" aria-expanded="false">
+        <span id="${prefix}BtnLabel">${aesc(label)}</span>
+        <svg class="a-caret" width="15" height="15" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true">
+          <path d="M6 9l6 6 6-6"/>
+        </svg>
+      </button>
+      <div class="a-multiselect-menu" id="${prefix}Menu" role="listbox" aria-multiselectable="true" aria-label="Styles auswählen">
+        ${state.styles.length ? state.styles.map(s => `
+          <label class="a-multiselect-opt">
+            <input type="checkbox" value="${aesc(s.label)}" ${selected.has(s.label) ? "checked" : ""}>
+            <span>${aesc(s.label)}</span>
+          </label>`).join("") : `<p class="a-multiselect-empty">Noch keine Styles angelegt — unten unter „Kategorien &amp; Styles" anlegen.</p>`}
+      </div>
+    </div>`;
+}
+
+// Liest die aktuell angehakten Style-Tags eines buildStyleMultiSelectHtml-
+// Dropdowns aus (beim Speichern des Formulars).
+function getSelectedStyleTags(prefix){
+  const menu = document.getElementById(`${prefix}Menu`);
+  if(!menu) return [];
+  return Array.from(menu.querySelectorAll("input:checked")).map(cb => cb.value);
+}
+
+// Oeffnen/Schliessen + Live-Update der Knopf-Beschriftung fuer ein per
+// buildStyleMultiSelectHtml gebautes Dropdown -- gleiches Klick-ausserhalb-/
+// Escape-Verhalten wie die uebrigen eigenen Dropdowns im Dashboard
+// (a-switch, an-select, cur-menu).
+function wireStyleMultiSelect(prefix){
+  const wrap = document.getElementById(`${prefix}Select`);
+  const btn  = document.getElementById(`${prefix}Btn`);
+  const menu = document.getElementById(`${prefix}Menu`);
+  if(!wrap || !btn || !menu) return;
+
+  function close(){ wrap.classList.remove("open"); btn.setAttribute("aria-expanded", "false"); }
+  function open(){ wrap.classList.add("open"); btn.setAttribute("aria-expanded", "true"); }
+
+  btn.onclick = (e)=>{
+    e.stopPropagation();
+    wrap.classList.contains("open") ? close() : open();
+  };
+  document.addEventListener("click", e => { if(!wrap.contains(e.target)) close(); });
+  document.addEventListener("keydown", e => {
+    if(e.key === "Escape" && wrap.classList.contains("open")){ close(); btn.focus(); }
+  });
+
+  const labelEl = document.getElementById(`${prefix}BtnLabel`);
+  menu.querySelectorAll("input[type=checkbox]").forEach(cb=>{
+    cb.addEventListener("change", ()=>{
+      const chosen = getSelectedStyleTags(prefix);
+      labelEl.textContent = chosen.length ? chosen.join(", ") : "Kein Style";
+    });
+  });
 }
 
 function renderDashboard(){
@@ -4921,9 +5026,8 @@ function renderDashboard(){
             </select>
           </div>
           <div>
-            <label class="a-label" for="p-style">Style-Tag</label>
-            <input id="p-style" class="a-field" list="styles" placeholder="OLDMONEY">
-            <datalist id="styles">${state.styles.map(s=>`<option value="${aesc(s.label)}">`).join("")}</datalist>
+            <label class="a-label" id="p-style-label-el">Styles</label>
+            ${buildStyleMultiSelectHtml("p-style", [])}
           </div>
           <div>
             <label class="a-label" for="p-position">Position</label>
@@ -5096,7 +5200,7 @@ function renderDashboard(){
           <label class="a-upload a-csv-dropzone" id="csvDropZone">
             ${UPLOAD_SVG}
             <span>CSV-Datei w\u00e4hlen</span>
-            <span class="a-upload-hint">oder hierher ziehen \u2014 Spalten: id, creator, title, price, category, subcategory, style, image_url, weidian_url. Zeilen mit id (aus einem Export) aktualisieren die bestehende Zeile statt eine neue anzulegen.</span>
+            <span class="a-upload-hint">oder hierher ziehen \u2014 Spalten: id, creator, title, price, category, subcategory, style, image_url, weidian_url. Mehrere Styles in "style" mit Semikolon trennen (z.B. "OLDMONEY; STREETWEAR"). Zeilen mit id (aus einem Export) aktualisieren die bestehende Zeile statt eine neue anzulegen.</span>
             <input id="csvFileInput" type="file" accept=".csv,text/csv">
           </label>
           <p class="a-hint" id="csvImportStatus" style="margin-top:8px"></p>
@@ -7672,7 +7776,7 @@ function wireDashboard(){
           product_url: p.product_url,
           image_url: p.image_url,
           category: p.category,
-          style_tag: p.style_tag,
+          style_tags: p.style_tags,
           is_trend: p.is_trend,
           sort_order: (i + 1) * 10
         }));
@@ -7860,7 +7964,7 @@ function wireDashboard(){
       product_url: document.getElementById("e-url").value.trim() || null,
       category: newCategory,
       subcategory: document.getElementById("e-subcat").value || null,
-      style_tag: document.getElementById("e-style").value.trim() || null,
+      style_tags: getSelectedStyleTags("e-style"),
       image_url: editedImageUrl || null,
       is_trend: document.getElementById("e-trend").checked,
       is_featured: stayFeatured,
@@ -7990,10 +8094,16 @@ function wireDashboard(){
 
   document.querySelectorAll("[data-delstyle]").forEach(btn => btn.onclick = async ()=>{
     const s = state.styles.find(x => x.id === btn.dataset.delstyle);
-    const drin = state.products.filter(p => p.style_tag === s.label).length;
+    const drin = state.products.filter(p => (p.style_tags || []).includes(s.label)).length;
     if(!confirm(`Style „${s.label}" löschen?` +
       (drin ? `\n\nBei ${drin} Produkt${drin===1?"":"en"} wird der Style entfernt.` : ""))) return;
-    if(drin) await sb.from("products").update({ style_tag:null }).eq("style_tag", s.label);
+    // Entfernt s.label aus dem style_tags-Array ueberall, wo es steckt (nicht
+    // einfach auf null setzen wie bei einem einzelnen Textfeld frueher) --
+    // array_remove() geht per Query-Builder nicht direkt, deshalb eine RPC.
+    if(drin){
+      const { error: cleanupErr } = await sb.rpc("remove_style_from_products", { style_label: s.label });
+      if(cleanupErr) return atoast(cleanupErr.message, "err");
+    }
     const { error } = await sb.from("styles").delete().eq("id", s.id);
     if(error) return atoast(error.message, "err");
     atoast("Style gelöscht.");
@@ -8172,7 +8282,7 @@ function wireDashboard(){
       product_url: url || null,
       category: document.getElementById("p-cat").value,
       subcategory: document.getElementById("p-subcat").value || null,
-      style_tag: document.getElementById("p-style").value.trim() || null,
+      style_tags: getSelectedStyleTags("p-style"),
       image_url: uploadedUrl || null,
       is_trend: document.getElementById("p-trend").checked,
       discount_label: discountMatch ? discountMatch[1] : null,
@@ -8296,6 +8406,12 @@ function wireDashboard(){
   });
 
   wireDragReorder();
+
+  // Style-Mehrfachauswahl in "Produkt hinzufügen" (immer vorhanden) und
+  // "Produkt bearbeiten" (nur wenn gerade eine Zeile aufgeklappt ist --
+  // wireStyleMultiSelect() macht selbst nichts, wenn die Elemente fehlen).
+  wireStyleMultiSelect("p-style");
+  wireStyleMultiSelect("e-style");
 
   // ---- Produktfilter: Kategorie/Style loesen sofort aus, Suche debounced,
   // damit nicht bei jedem Tastenanschlag ein Netzwerk-Roundtrip-Gefuehl entsteht.
@@ -8594,7 +8710,7 @@ function mapProductRow(p){
     name:  p.title,
     cat:   p.category || "all",
     subcat: p.subcategory || "",
-    style: p.style_tag || "",
+    styles: Array.isArray(p.style_tags) ? p.style_tags : [],
     price: Number(p.price) || 0,
     url:   p.product_url || "",
     img:   p.image_url || "",
