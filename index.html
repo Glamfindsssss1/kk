@@ -1330,6 +1330,21 @@
   .a-row-title{font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .a-row-meta{font-size:13px;color:var(--muted);margin-top:3px;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  /* Admin-Zugänge: jede Zeile steckt in einem Wrapper, damit das
+     Creator-Zuweisen-Panel darunter Platz hat, ohne die Row-Trennlinien
+     zwischen den Admins durcheinanderzubringen (Rand wandert auf den
+     Wrapper, die innere .a-row verliert ihren eigenen). */
+  .a-row-wrap{border-top:1px solid #eff1f4;padding:14px 0;}
+  .a-row-wrap:first-child{border-top:none;padding-top:4px;}
+  .a-row-wrap .a-row{border-top:none;padding:0;}
+  .a-row-creators{white-space:normal;}
+  .a-assign-none{color:var(--err);}
+  .a-assign-panel{margin-top:12px;background:#f8f9fc;border:1px solid var(--border);
+    border-radius:12px;padding:14px;}
+  .a-assign-list{position:static;opacity:1;visibility:visible;transform:none;
+    box-shadow:none;border:none;padding:0;max-height:220px;overflow:auto;}
+  .a-assign-list-static{position:static;opacity:1;visibility:visible;transform:none;
+    box-shadow:none;border:1px solid var(--border);border-radius:12px;padding:8px;max-height:220px;overflow:auto;}
   .a-pill{display:inline-block;background:#eef0f4;border-radius:999px;padding:2px 9px;
     font-size:11px;font-weight:700;color:#5b616b;margin-left:7px;vertical-align:1px;}
   .a-pill-trend{background:#e8f1ff;color:#2f55d4;}
@@ -4039,10 +4054,18 @@ async function refresh(){
     if(state.isAdmin){
       const { data:cs, error:csErr } = await sb.from("creators").select("*").order("created_at");
       if(csErr) throw csErr;
+      // RLS liefert einem eingeschraenkten Unter-Admin ohnehin nur die ihm
+      // zugewiesenen Creator zurueck (siehe can_manage_creator) -- state.creators
+      // ist fuer ihn also automatisch schon die richtige, kleinere Liste.
       state.creators = cs ?? [];
       // ALL_CREATOR_ID ist kein echter Eintrag in creators — bleibt hier bewusst
       // erhalten, statt beim naechsten Laden auf den ersten Creator zurueckzufallen.
-      if(state.activeId !== ALL_CREATOR_ID && !state.creators.some(c => c.id === state.activeId)){
+      // Fuer einen eingeschraenkten Unter-Admin gibt es "Alle Creator" gar nicht
+      // erst zu waehlen -- er landet immer auf einem echten, ihm zugewiesenen Creator.
+      const activeIdAllowed = state.isSuperAdmin
+        ? (state.activeId === ALL_CREATOR_ID || state.creators.some(c => c.id === state.activeId))
+        : state.creators.some(c => c.id === state.activeId);
+      if(!activeIdAllowed){
         state.activeId = state.creators[0]?.id ?? null;
       }
       await loadCategoriesFor(state.activeId);
@@ -4479,6 +4502,12 @@ const ANALYTICS_METRICS = {
 function render(){
   if(!state.user) return renderLogin();
   if(!state.isAdmin) return renderNoAccess();
+  // Shop-Zuweisung und Admin-Zugänge sind Chef-Admin-Sache (site-weite
+  // Infrastruktur bzw. Rechteverwaltung) -- ein direkt gesetztes adminView
+  // (z.B. aus einem alten Tab-Zustand) darf einen Unter-Admin nicht doch
+  // noch dorthin durchlassen.
+  if(adminView === "shopassign" && !state.isSuperAdmin) adminView = "dashboard";
+  if(adminView === "adminaccounts" && !state.isSuperAdmin) adminView = "dashboard";
   if(adminView === "analytics") return renderAnalytics();
   if(adminView === "revenue") return renderRevenue();
   if(adminView === "shopassign") return renderShopAssign();
@@ -5011,18 +5040,54 @@ async function extractFnError(error){
 // Baut eine Zeile fuer die Admin-Zugaenge-Liste (Chef-Admin-Bereich). Der
 // Chef-Admin selbst bekommt keine Loeschen-/Passwort-zuruecksetzen-Buttons --
 // den eigenen Zugang verwaltet man hier nicht.
+// Baut die Checkboxen-Liste fuer die Creator-Zuweisung eines Unter-Admins --
+// gleiches Muster wie buildStyleMultiSelectHtml, nur mit Creator-IDs statt
+// Style-Labels als Wert.
+function buildCreatorAssignHtml(userId, assignedIds){
+  const assigned = new Set(assignedIds || []);
+  return `
+    <div class="a-assign-panel" id="assignPanel-${aesc(userId)}" hidden>
+      ${state.creators.length ? `
+        <div class="a-multiselect-menu a-assign-list" role="listbox" aria-multiselectable="true" aria-label="Creator zuweisen">
+          ${state.creators.map(c => `
+            <label class="a-multiselect-opt">
+              <input type="checkbox" value="${aesc(c.id)}" ${assigned.has(c.id) ? "checked" : ""}>
+              <span>${aesc(c.name)}</span>
+            </label>`).join("")}
+        </div>
+        <div class="a-actions" style="margin-top:10px">
+          <button type="button" class="a-btn a-btn-ghost" data-cancel-assign="${aesc(userId)}">Abbrechen</button>
+          <button type="button" class="a-btn a-btn-primary" data-save-assign="${aesc(userId)}">Zuweisung speichern</button>
+        </div>` : `<p class="a-empty">Erst unter „Dashboard" einen Creator anlegen.</p>`}
+    </div>`;
+}
+
+// Zeigt die zugewiesenen Creator eines Unter-Admins als Klartext -- ohne
+// jede Zuweisung ein deutlicher Hinweis, denn ohne Zuweisung kann dieser
+// Admin nirgends etwas bearbeiten (siehe can_manage_creator in der DB).
+function creatorNamesLabel(creatorIds){
+  if(!creatorIds || !creatorIds.length) return `<span class="a-assign-none">Noch keinem Creator zugewiesen — kann nirgends etwas bearbeiten.</span>`;
+  const names = creatorIds.map(id => state.creators.find(c => c.id === id)?.name).filter(Boolean);
+  return names.length ? aesc(names.join(", ")) : `<span class="a-assign-none">Zugewiesene Creator wurden gelöscht.</span>`;
+}
+
 function renderAdminAccountRow(a){
   return `
-    <div class="a-row" data-user="${aesc(a.user_id)}">
-      <div class="a-row-main">
-        <div class="a-row-title">${aesc(a.username || "Chef-Admin (E-Mail-Login)")}</div>
-        <div class="a-row-meta">${a.is_super_admin ? "Chef-Admin" : "Admin"} · seit ${new Date(a.created_at).toLocaleDateString("de-DE")}</div>
+    <div class="a-row-wrap" data-user="${aesc(a.user_id)}">
+      <div class="a-row">
+        <div class="a-row-main">
+          <div class="a-row-title">${aesc(a.username || "Chef-Admin (E-Mail-Login)")}</div>
+          <div class="a-row-meta">${a.is_super_admin ? "Chef-Admin · sieht und bearbeitet alle Creator" : "Admin · seit " + new Date(a.created_at).toLocaleDateString("de-DE")}</div>
+          ${!a.is_super_admin ? `<div class="a-row-meta a-row-creators">${creatorNamesLabel(a.creatorIds)}</div>` : ""}
+        </div>
+        ${!a.is_super_admin ? `
+        <div class="a-tools">
+          <button type="button" class="a-btn a-btn-ghost" data-assign-admin="${aesc(a.user_id)}">Creator zuweisen</button>
+          <button type="button" class="a-btn a-btn-ghost" data-reset-admin="${aesc(a.user_id)}">Passwort zurücksetzen</button>
+          <button type="button" class="a-icon a-icon-del" data-del-admin="${aesc(a.user_id)}" aria-label="${aesc(a.username)} löschen">✕</button>
+        </div>` : ""}
       </div>
-      ${!a.is_super_admin ? `
-      <div class="a-tools">
-        <button type="button" class="a-btn a-btn-ghost" data-reset-admin="${aesc(a.user_id)}">Passwort zurücksetzen</button>
-        <button type="button" class="a-icon a-icon-del" data-del-admin="${aesc(a.user_id)}" aria-label="${aesc(a.username)} löschen">✕</button>
-      </div>` : ""}
+      ${!a.is_super_admin ? buildCreatorAssignHtml(a.user_id, a.creatorIds) : ""}
     </div>`;
 }
 
@@ -5071,6 +5136,18 @@ function renderAdminAccounts(){
         <form id="adminAccForm" class="a-grid" style="margin-top:18px;border-top:1px solid #eff1f4;padding-top:18px">
           <div><label class="a-label" for="aa-username">Benutzername *</label><input id="aa-username" class="a-field" required placeholder="max" autocomplete="off"></div>
           <div><label class="a-label" for="aa-password">Passwort *</label><input id="aa-password" class="a-field" type="password" required minlength="6" placeholder="mind. 6 Zeichen" autocomplete="new-password"></div>
+          <div class="a-full">
+            <label class="a-label">Darf bearbeiten</label>
+            <p class="a-hint" style="margin:0 0 10px">Ohne Häkchen kann dieser Admin sich zwar anmelden, aber nirgends etwas ändern — Häkchen lassen sich jederzeit über „Creator zuweisen" nachtragen.</p>
+            ${state.creators.length ? `
+              <div class="a-multiselect-menu a-assign-list a-assign-list-static">
+                ${state.creators.map(c => `
+                  <label class="a-multiselect-opt">
+                    <input type="checkbox" name="aa-creator" value="${aesc(c.id)}">
+                    <span>${aesc(c.name)}</span>
+                  </label>`).join("")}
+              </div>` : `<p class="a-empty">Erst unter „Dashboard" einen Creator anlegen.</p>`}
+          </div>
           <div class="a-actions"><button class="a-btn a-btn-primary" id="aa-save">Admin anlegen</button></div>
         </form>
       </div>
@@ -5088,9 +5165,10 @@ function renderAdminAccounts(){
     const btn = document.getElementById("aa-save");
     const username = document.getElementById("aa-username").value.trim();
     const password = document.getElementById("aa-password").value;
+    const creatorIds = Array.from(aaForm.querySelectorAll('input[name="aa-creator"]:checked')).map(cb => cb.value);
     btn.disabled = true;
     btn.textContent = "Legt an …";
-    const { data, error } = await sb.functions.invoke("manage-admins", { body: { action: "create", username, password } });
+    const { data, error } = await sb.functions.invoke("manage-admins", { body: { action: "create", username, password, creatorIds } });
     btn.disabled = false;
     btn.textContent = "Admin anlegen";
     if(error) return atoast(await extractFnError(error), "err");
@@ -5116,6 +5194,37 @@ function renderAdminAccounts(){
       const { error } = await sb.functions.invoke("manage-admins", { body: { action: "reset_password", userId: resetBtn.dataset.resetAdmin, newPassword: newPw } });
       if(error) return atoast(await extractFnError(error), "err");
       atoast("Passwort zurückgesetzt.");
+      return;
+    }
+
+    // Creator-Zuweisung: Klick auf "Creator zuweisen" oeffnet/schliesst das
+    // dazugehoerige Panel (direkt unter der jeweiligen Admin-Zeile).
+    const assignBtn = e.target.closest("[data-assign-admin]");
+    if(assignBtn){
+      const panel = document.getElementById(`assignPanel-${assignBtn.dataset.assignAdmin}`);
+      if(panel) panel.hidden = !panel.hidden;
+      return;
+    }
+    const cancelBtn = e.target.closest("[data-cancel-assign]");
+    if(cancelBtn){
+      const panel = document.getElementById(`assignPanel-${cancelBtn.dataset.cancelAssign}`);
+      if(panel) panel.hidden = true;
+      return;
+    }
+    const saveBtn = e.target.closest("[data-save-assign]");
+    if(saveBtn){
+      const userId = saveBtn.dataset.saveAssign;
+      const panel = document.getElementById(`assignPanel-${userId}`);
+      if(!panel) return;
+      const creatorIds = Array.from(panel.querySelectorAll("input[type=checkbox]:checked")).map(cb => cb.value);
+      saveBtn.disabled = true;
+      saveBtn.textContent = "Speichert …";
+      const { error } = await sb.functions.invoke("manage-admins", { body: { action: "assign_creators", userId, creatorIds } });
+      saveBtn.disabled = false;
+      saveBtn.textContent = "Zuweisung speichern";
+      if(error) return atoast(await extractFnError(error), "err");
+      atoast("Zuweisung gespeichert.");
+      loadAdminAccountsList();
     }
   });
 }
@@ -5141,7 +5250,7 @@ function renderDashboard(){
                         title="Seite von ${aesc(active.name)} \u00f6ffnen">Seite ansehen \u2197</button>` : ""}
           <button class="a-btn a-btn-ghost" id="openAnalytics">Analytics</button>
           <button class="a-btn a-btn-ghost" id="openRevenue">Umsatz</button>
-          <button class="a-btn a-btn-ghost" id="openShopAssign">Shop-Zuweisung</button>
+          ${state.isSuperAdmin ? `<button class="a-btn a-btn-ghost" id="openShopAssign">Shop-Zuweisung</button>` : ""}
           ${state.isSuperAdmin ? `<button class="a-btn a-btn-ghost" id="openAdminAccounts">Admin-Zugänge</button>` : ""}
           <button class="a-btn a-btn-ghost" id="signout">Abmelden</button>
         </div>
@@ -5165,7 +5274,7 @@ function renderDashboard(){
               <span class="a-switch-name">${isAllMode ? "Alle Creator" : (active ? aesc(active.name) : "Noch kein Creator")}</span>
               <span class="a-switch-meta">${isAllMode
                 ? state.products.length + " gemeinsame Produktgruppen"
-                : (active ? "/" + aesc(active.slug) + " \u00b7 " + state.products.length + " Produkte" : "Leg unten den ersten an")}</span>
+                : (active ? "/" + aesc(active.slug) + " \u00b7 " + state.products.length + " Produkte" : (state.isSuperAdmin ? "Leg unten den ersten an" : "Noch keinem Creator zugewiesen — bitte den Chef-Admin fragen"))}</span>
             </span>
             <svg class="a-caret" width="18" height="18" viewBox="0 0 24 24" fill="none"
                  stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
@@ -5173,12 +5282,14 @@ function renderDashboard(){
             </svg>
           </button>
           <div class="a-menu" id="switchMenu" role="listbox" aria-label="Creator wählen">
+            ${state.isSuperAdmin ? `
             <button type="button" class="a-opt a-opt-add a-opt-add-pinned" id="menuAdd">
               <span class="a-av" style="background:#eef0f4;color:var(--accent)">+</span>
               <span class="a-switch-txt"><span class="a-switch-name a-opt-add">Neuen Creator anlegen</span></span>
             </button>
-            <div class="a-menu-sep"></div>
+            <div class="a-menu-sep"></div>` : ""}
             <div class="a-menu-scroll">
+              ${state.isSuperAdmin ? `
               <div class="a-opt-row">
                 <button type="button" class="a-opt" role="option" data-pick="${ALL_CREATOR_ID}"
                         aria-selected="${isAllMode}">
@@ -5193,7 +5304,7 @@ function renderDashboard(){
                   </svg>
                 </button>
               </div>
-              ${state.creators.length ? `<div class="a-menu-sep"></div>` : ""}
+              ${state.creators.length ? `<div class="a-menu-sep"></div>` : ""}` : ""}
               ${state.creators.map(c => `
                 <div class="a-opt-row">
                   <button type="button" class="a-opt" role="option" data-pick="${aesc(c.id)}"
@@ -5208,11 +5319,12 @@ function renderDashboard(){
                       <path d="M4 12.5l5 5L20 6.5"/>
                     </svg>
                   </button>
+                  ${state.isSuperAdmin ? `
                   <button type="button" class="a-opt-del" data-delcreator="${aesc(c.id)}" title="${aesc(c.name)} löschen" aria-label="${aesc(c.name)} löschen">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/>
                     </svg>
-                  </button>
+                  </button>` : ""}
                 </div>`).join("")}
             </div>
           </div>
@@ -5221,7 +5333,7 @@ function renderDashboard(){
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
           ${active ? `
             <button class="a-btn a-btn-ghost" id="editCreator">Bearbeiten</button>` : ""}
-          <button class="a-btn a-btn-ghost" id="toggleNew" style="margin-left:auto">+ Neuer Creator</button>
+          ${state.isSuperAdmin ? `<button class="a-btn a-btn-ghost" id="toggleNew" style="margin-left:auto">+ Neuer Creator</button>` : ""}
         </div>
 
         ${(active && !isAllMode) ? `
@@ -6295,6 +6407,12 @@ function updateVisitorMap(byCountry, viewsWithoutCountry){
 }
 
 async function renderAnalytics(){
+  // Ein eingeschraenkter Unter-Admin hat keine "Alle Creator"-Sicht -- ohne
+  // diese Absicherung wuerde get_live_visitor_count() (das jetzt einen
+  // konkreten, zugewiesenen Creator verlangt) mit einem Fehler abbrechen.
+  if(!state.isSuperAdmin && (analyticsCreatorId === "all" || !state.creators.some(c => c.id === analyticsCreatorId))){
+    analyticsCreatorId = state.creators[0]?.id ?? "all";
+  }
   app.innerHTML = `
     <div class="a-bar">
       <div class="a-bar-in">
@@ -6338,6 +6456,7 @@ async function renderAnalytics(){
                 </svg>
               </button>
               <div class="an-select-menu" id="anCreatorSelectMenu" role="listbox" aria-label="Creator filtern">
+                ${state.isSuperAdmin ? `
                 <button type="button" class="an-select-opt" role="option" data-creator="all"
                         aria-selected="${analyticsCreatorId === "all"}">
                   <span class="a-av a-av-all">\u2b50</span>
@@ -6346,7 +6465,7 @@ async function renderAnalytics(){
                        stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <path d="M4 12.5l5 5L20 6.5"/>
                   </svg>
-                </button>
+                </button>` : ""}
                 ${state.creators.map(c=>`
                   <button type="button" class="an-select-opt" role="option" data-creator="${aesc(c.id)}"
                           aria-selected="${analyticsCreatorId === c.id}">
@@ -8249,7 +8368,8 @@ function wireDashboard(){
     render();
   };
 
-  document.getElementById("openShopAssign").onclick = ()=>{
+  const openShopAssignBtn = document.getElementById("openShopAssign");
+  if(openShopAssignBtn) openShopAssignBtn.onclick = ()=>{
     adminView = "shopassign";
     render();
   };
@@ -8435,7 +8555,7 @@ function wireDashboard(){
     setPrev("c-avatarprev", ""); setPrev("c-promologoprev", "");
     shareLinkInput.value = "";
     populateWeidianShops(WEIDIAN_SHOPS, "");
-    toggle.textContent = "+ Neuer Creator";
+    if(toggle) toggle.textContent = "+ Neuer Creator";
     if(editBtn) editBtn.textContent = "Bearbeiten";
   }
 
@@ -8453,7 +8573,7 @@ function wireDashboard(){
     document.getElementById("cFormTitle").textContent = c ? `${c.name} bearbeiten` : "Neuer Creator";
     cForm.querySelector("button:not([type=button])").textContent =
       c ? "\u00c4nderungen speichern" : "Creator anlegen";
-    toggle.textContent  = mode === "new"  ? "Abbrechen" : "+ Neuer Creator";
+    if(toggle) toggle.textContent  = mode === "new"  ? "Abbrechen" : "+ Neuer Creator";
     if(editBtn) editBtn.textContent = mode === "edit" ? "Abbrechen" : "Bearbeiten";
 
     if(c){
@@ -8492,7 +8612,7 @@ function wireDashboard(){
     document.getElementById("c-name").focus();
   }
 
-  toggle.onclick = ()=> formMode === "new"  ? closeForm() : openForm("new");
+  if(toggle) toggle.onclick = ()=> formMode === "new"  ? closeForm() : openForm("new");
   if(editBtn) editBtn.onclick = ()=> formMode === "edit" ? closeForm() : openForm("edit");
   document.getElementById("cancelNew").onclick = closeForm;
 
