@@ -7291,6 +7291,14 @@ async function renderShopAssign(){
 }
 
 async function renderRevenue(){
+  // Ein eingeschraenkter Unter-Admin hat keine "Alle Creator"-Sicht (siehe
+  // renderAnalytics) -- betrifft hier zwar keine Sicherheit (RLS filtert
+  // weidian_orders ohnehin schon auf seine eigenen Shops), aber ohne das
+  // wuerde "Alle Creator" fuer ihn stehen bleiben, obwohl er dort exakt
+  // dieselben Zahlen wie bei seinem eigenen Creator saehe -- verwirrend.
+  if(!state.isSuperAdmin && (revenueCreatorId === "all" || !state.creators.some(c => c.id === revenueCreatorId))){
+    revenueCreatorId = state.creators[0]?.id ?? "all";
+  }
   // Erst pruefen, ob bereits ECHTE Bestellungen aus einer erfolgreichen
   // Weidian-Synchronisierung vorliegen — falls ja, werden sie statt der
   // Demo-Daten verwendet und das "Vorschau"-Badge verschwindet automatisch.
@@ -7496,6 +7504,7 @@ async function renderRevenue(){
                 </svg>
               </button>
               <div class="an-select-menu" id="rvCreatorSelectMenu" role="listbox" aria-label="Creator filtern">
+                ${state.isSuperAdmin ? `
                 <button type="button" class="an-select-opt" role="option" data-creator="all"
                         aria-selected="${revenueCreatorId === "all"}">
                   <span class="a-av a-av-all">\u2b50</span>
@@ -7504,7 +7513,7 @@ async function renderRevenue(){
                        stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <path d="M4 12.5l5 5L20 6.5"/>
                   </svg>
-                </button>
+                </button>` : ""}
                 ${groupCreatorsByShop(state.creators).map(group=>{
                   const isSelected = group.creators.some(c => c.id === revenueCreatorId);
                   const label = group.creators.map(c => c.name).join(", ");
