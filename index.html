@@ -3679,6 +3679,23 @@ function scrollToFilters(){
 
 
 // ---------- Admin ----------
+
+// Unter-Admins melden sich per Benutzername an statt per E-Mail -- Supabase
+// Auth kennt aber nur E-Mail+Passwort, deshalb wird der Benutzername
+// deterministisch in eine interne "Fake-E-Mail" umgewandelt (dort geht nie
+// eine Mail ein). Muss 1:1 der gleichnamigen Logik in der Edge Function
+// manage-admins entsprechen, sonst passt der hier gebaute Login nicht mehr
+// zu der beim Anlegen tatsaechlich gespeicherten Adresse. Der Chef-Admin
+// meldet sich weiterhin mit seiner echten E-Mail an (am "@" im Eingabefeld
+// erkannt, siehe renderLogin) -- fuer den bleibt diese Umwandlung ungenutzt.
+const ADMIN_FAKE_EMAIL_DOMAIN = "@stylefinder-admin.internal";
+function sanitizeAdminUsername(raw){
+  return String(raw ?? "").trim().toLowerCase().replace(/[^a-z0-9._-]/g, "");
+}
+function buildAdminFakeEmail(username){
+  return sanitizeAdminUsername(username) + ADMIN_FAKE_EMAIL_DOMAIN;
+}
+
 const toastEl = document.createElement("div");
 toastEl.style.display = "none";
 document.body.appendChild(toastEl);
@@ -3703,7 +3720,7 @@ function closeAdmin(){
 const ALL_CREATOR_ID = "__ALL__";
 
 const app = document.getElementById("adminRoot");
-let state = { user:null, isAdmin:false, creators:[], activeId:null, products:[], categories:[], styles:[], subcategories:[], affiliateAgents:[], busy:false };
+let state = { user:null, isAdmin:false, isSuperAdmin:false, creators:[], activeId:null, products:[], categories:[], styles:[], subcategories:[], affiliateAgents:[], busy:false };
 let editingProductId = null; // Produkt-ID der gerade aufgeklappten Bearbeiten-Zeile, oder null
 
 // Anzahl Kopien pro group_id, nur relevant/befuellt in der "Alle Creator"-Ansicht —
@@ -3763,11 +3780,13 @@ async function refresh(){
 
   try {
     if(user){
-      const { data, error } = await sb.from("admins").select("user_id").eq("user_id", user.id).maybeSingle();
+      const { data, error } = await sb.from("admins").select("user_id, is_super_admin").eq("user_id", user.id).maybeSingle();
       if(error) throw error;
       state.isAdmin = Boolean(data);
+      state.isSuperAdmin = Boolean(data?.is_super_admin);
     } else {
       state.isAdmin = false;
+      state.isSuperAdmin = false;
     }
 
     if(state.isAdmin){
@@ -4228,8 +4247,8 @@ function renderLogin(){
           <p class="a-sub">Nur beim ersten Mal \u2014 danach öffnet die Phrase allein.</p>
         </div>
         <form id="loginForm">
-          <label class="a-label" for="email">E-Mail</label>
-          <input id="email" class="a-field" type="email" required autocomplete="email" enterkeyhint="next" style="margin-bottom:18px">
+          <label class="a-label" for="email">E-Mail oder Benutzername</label>
+          <input id="email" class="a-field" type="text" required autocomplete="username" enterkeyhint="next" style="margin-bottom:18px">
           <label class="a-label" for="pw">Passwort</label>
           <input id="pw" class="a-field" type="password" required autocomplete="current-password" enterkeyhint="go">
           <button type="submit" class="a-btn a-btn-primary" style="width:100%;margin-top:22px">Anmelden</button>
@@ -4244,13 +4263,18 @@ function renderLogin(){
     const btn = form.querySelector("button[type=submit]");
     const originalLabel = btn.textContent;
     btn.disabled = true;
-    btn.textContent = "Meldet an …";
+    btn.textContent = "Meldet an \u2026";
     try {
+      // Enthaelt die Eingabe ein "@", ist es eine echte E-Mail (Chef-Admin) --
+      // sonst ein Benutzername (Unter-Admin), der erst in die interne
+      // Fake-Adresse umgewandelt werden muss (siehe buildAdminFakeEmail).
+      const rawId = document.getElementById("email").value.trim();
+      const loginEmail = rawId.includes("@") ? rawId : buildAdminFakeEmail(rawId);
       const { error } = await sb.auth.signInWithPassword({
-        email: document.getElementById("email").value,
+        email: loginEmail,
         password: document.getElementById("pw").value
       });
-      if(error) return atoast("E-Mail oder Passwort stimmt nicht.", "err");
+      if(error) return atoast("Zugangsdaten stimmen nicht.", "err");
       refresh();
     } catch(err) {
       // Netzwerkfehler (z.B. WLAN-/Mobilfunk-Aussetzer) wirft hier eine rohe
@@ -4721,6 +4745,57 @@ function wireStyleMultiSelect(prefix, onChange){
   });
 }
 
+// Holt die eigentliche Fehlermeldung aus einer fehlgeschlagenen Edge-Function-
+// Antwort -- sb.functions.invoke() liefert bei einem Nicht-2xx-Status nur ein
+// generisches error.message; der hilfreiche Text (z.B. "Benutzername schon
+// vergeben") steckt im JSON-Body, den man erst ueber error.context auslesen
+// muss. Gleiches Muster wie beim Weidian-Sync-Button.
+async function extractFnError(error){
+  if(!error) return "Unbekannter Fehler.";
+  let detail = error.message;
+  try {
+    const body = await error.context?.json?.();
+    if(body?.error) detail = body.error;
+  } catch { /* Antwort war kein JSON -- bei der generischen Meldung bleiben */ }
+  return detail;
+}
+
+// Baut eine Zeile fuer die Admin-Zugaenge-Liste (Chef-Admin-Bereich). Der
+// Chef-Admin selbst bekommt keine Loeschen-/Passwort-zuruecksetzen-Buttons --
+// den eigenen Zugang verwaltet man hier nicht.
+function renderAdminAccountRow(a){
+  return `
+    <div class="a-row" data-user="${aesc(a.user_id)}">
+      <div class="a-row-main">
+        <div class="a-row-title">${aesc(a.username || "Chef-Admin (E-Mail-Login)")}</div>
+        <div class="a-row-meta">${a.is_super_admin ? "Chef-Admin" : "Admin"} · seit ${new Date(a.created_at).toLocaleDateString("de-DE")}</div>
+      </div>
+      ${!a.is_super_admin ? `
+      <div class="a-tools">
+        <button type="button" class="a-btn a-btn-ghost" data-reset-admin="${aesc(a.user_id)}">Passwort zurücksetzen</button>
+        <button type="button" class="a-icon a-icon-del" data-del-admin="${aesc(a.user_id)}" aria-label="${aesc(a.username)} löschen">✕</button>
+      </div>` : ""}
+    </div>`;
+}
+
+// Laedt die Admin-Liste ueber die manage-admins Edge Function (RLS erlaubt
+// normalen Admins nur den eigenen admins-Datensatz zu lesen, siehe
+// admins_read_own -- die vollstaendige Liste gibt es deshalb nur ueber die
+// Funktion, die serverseitig mit dem Service-Role-Key arbeitet).
+async function loadAdminAccountsList(){
+  const listEl = document.getElementById("adminAccList");
+  if(!listEl) return;
+  const { data, error } = await sb.functions.invoke("manage-admins", { body: { action: "list" } });
+  if(error){
+    listEl.innerHTML = `<p class="a-empty">Konnte nicht geladen werden: ${aesc(await extractFnError(error))}</p>`;
+    return;
+  }
+  const admins = data?.admins ?? [];
+  listEl.innerHTML = admins.length
+    ? admins.map(renderAdminAccountRow).join("")
+    : `<p class="a-empty">Keine Admins gefunden.</p>`;
+}
+
 function renderDashboard(){
   const isAllMode = state.activeId === ALL_CREATOR_ID;
   const active = isAllMode ? null : (state.creators.find(c => c.id === state.activeId) ?? null);
@@ -5031,6 +5106,22 @@ function renderDashboard(){
           </div>
         </form>
       </div>
+
+      ${state.isSuperAdmin ? `
+      <div class="a-card">
+        <div class="a-head">
+          <h2 class="a-h2">Admin-Zugänge</h2>
+          <p class="a-sub">Weitere Admins mit eigenem Benutzernamen + Passwort anlegen — diesen Bereich siehst nur du als Chef-Admin.</p>
+        </div>
+        <div class="a-list" id="adminAccList">
+          <p class="a-empty">Lädt …</p>
+        </div>
+        <form id="adminAccForm" class="a-grid" style="margin-top:18px;border-top:1px solid #eff1f4;padding-top:18px">
+          <div><label class="a-label" for="aa-username">Benutzername *</label><input id="aa-username" class="a-field" required placeholder="max" autocomplete="off"></div>
+          <div><label class="a-label" for="aa-password">Passwort *</label><input id="aa-password" class="a-field" type="password" required minlength="6" placeholder="mind. 6 Zeichen" autocomplete="new-password"></div>
+          <div class="a-actions"><button class="a-btn a-btn-primary" id="aa-save">Admin anlegen</button></div>
+        </form>
+      </div>` : ""}
 
       ${(active || isAllMode) ? `
       ${!isAllMode ? `
@@ -8540,6 +8631,48 @@ function wireDashboard(){
     state.products = await loadProducts(state.activeId);
     render();
   };
+
+  // ---- Admin-Zugänge (nur Chef-Admin) ----
+  if(state.isSuperAdmin){
+    loadAdminAccountsList();
+
+    const aaForm = document.getElementById("adminAccForm");
+    if(aaForm) aaForm.onsubmit = async (e)=>{
+      e.preventDefault();
+      const btn = document.getElementById("aa-save");
+      const username = document.getElementById("aa-username").value.trim();
+      const password = document.getElementById("aa-password").value;
+      btn.disabled = true;
+      btn.textContent = "Legt an …";
+      const { data, error } = await sb.functions.invoke("manage-admins", { body: { action: "create", username, password } });
+      btn.disabled = false;
+      btn.textContent = "Admin anlegen";
+      if(error) return atoast(await extractFnError(error), "err");
+      atoast(`Admin "${data.username}" angelegt.`);
+      aaForm.reset();
+      loadAdminAccountsList();
+    };
+
+    document.getElementById("adminAccList")?.addEventListener("click", async (e)=>{
+      const delBtn = e.target.closest("[data-del-admin]");
+      if(delBtn){
+        if(!confirm("Diesen Admin-Zugang wirklich löschen? Das lässt sich nicht rückgängig machen.")) return;
+        const { error } = await sb.functions.invoke("manage-admins", { body: { action: "delete", userId: delBtn.dataset.delAdmin } });
+        if(error) return atoast(await extractFnError(error), "err");
+        atoast("Admin gelöscht.");
+        loadAdminAccountsList();
+        return;
+      }
+      const resetBtn = e.target.closest("[data-reset-admin]");
+      if(resetBtn){
+        const newPw = prompt("Neues Passwort für diesen Admin (mind. 6 Zeichen):");
+        if(!newPw) return;
+        const { error } = await sb.functions.invoke("manage-admins", { body: { action: "reset_password", userId: resetBtn.dataset.resetAdmin, newPassword: newPw } });
+        if(error) return atoast(await extractFnError(error), "err");
+        atoast("Passwort zurückgesetzt.");
+      }
+    });
+  }
 }
 
 
