@@ -1174,6 +1174,14 @@
   .a-btn-ghost{background:#fff;border-color:#d3d8e0;color:var(--text);}
   .a-btn-ghost:hover{border-color:#9aa2b1;background:#fafbfc;}
   .a-btn:disabled{opacity:.45;cursor:not-allowed;transform:none;}
+  .a-btn-danger{background:#fff;border-color:#f2c6c6;color:var(--err);}
+  .a-btn-danger:hover:not(:disabled){border-color:var(--err);background:#fff5f5;}
+
+  /* Mehrfachauswahl-Leiste über der Produktliste */
+  .a-bulk-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:16px 0 0;}
+  .a-bulk-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+  .a-bulk-count{font-size:13px;font-weight:700;color:var(--muted);white-space:nowrap;}
+  .a-bulk-actions{display:flex;gap:10px;flex-wrap:wrap;}
 
   /* Produktzeilen */
   .a-list{margin-top:4px;}
@@ -1186,6 +1194,11 @@
   .a-row.is-editing{background:#f8f9fc;border-radius:12px;margin:0 -12px;padding-left:12px;padding-right:12px;}
   .a-row.is-editing .a-drag-handle{opacity:.3;pointer-events:none;}
   .a-icon-edit[aria-expanded="true"]{border-color:var(--accent);color:var(--accent);background:#f3f6ff;}
+
+  /* Mehrfachauswahl: Checkbox ersetzt den Drag-Griff, markierte Zeilen heben sich ab */
+  .a-row.is-selected{background:#f0f3ff;border-radius:12px;margin:0 -12px;padding-left:12px;padding-right:12px;}
+  .a-row-check{width:44px;height:44px;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;}
+  .a-row-check input{width:19px;height:19px;accent-color:var(--accent);cursor:pointer;}
 
   /* Inline-Bearbeitung: klappt direkt unter der Zeile auf, Liste bleibt an Ort und Stelle */
   .a-edit-panel{background:#f8f9fc;border:1px solid #e9ecf1;border-radius:14px;
@@ -3682,6 +3695,13 @@ let productFilterSubcat = "all";
 let productFilterStyle  = "all";
 let productFilterQuery  = "";
 
+// Mehrfachauswahl in der Produktliste — an/aus ueber den "Auswählen"-Button,
+// selectedProductIds sammelt die IDs waehrend der Modus aktiv ist. Beide
+// werden beim Creator-Wechsel zurueckgesetzt (siehe data-pick-Handler),
+// da ausgewaehlte IDs sonst zum falschen Creator gehoeren wuerden.
+let bulkSelectMode = false;
+let selectedProductIds = new Set();
+
 const aesc = (s) => String(s ?? "").replace(/[&<>"']/g, c =>
   ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 
@@ -4307,13 +4327,17 @@ function buildAdminProductRows(items, all, catLabel){
     // Ohne Filter: echte Globalposition
     const pos = filterActive ? filteredIndex + 1 : i + 1;
     const maxPos = filterActive ? items.length : all.length;
+    const isSelected = selectedProductIds.has(p.id);
     return `
-              <div class="a-row ${p.is_hidden ? "is-hidden" : ""} ${editingProductId===p.id ? "is-editing" : ""}" data-id="${p.id}">
-                ${isAllMode ? "" : `
+              <div class="a-row ${p.is_hidden ? "is-hidden" : ""} ${editingProductId===p.id ? "is-editing" : ""} ${bulkSelectMode && isSelected ? "is-selected" : ""}" data-id="${p.id}">
+                ${isAllMode ? "" : (bulkSelectMode ? `
+                <label class="a-row-check">
+                  <input type="checkbox" data-select="${p.id}" ${isSelected ? "checked" : ""} aria-label="${aesc(p.title)} auswählen">
+                </label>` : `
                 <button type="button" class="a-drag-handle" data-drag="${p.id}"
                         tabindex="-1" aria-hidden="true" title="Ziehen zum Sortieren">
                   ${GRIP_SVG}
-                </button>`}
+                </button>`)}
                 ${isAllMode ? "" : `
                 <div class="a-pos-wrap" title="${filterActive ? "Position innerhalb dieser Filteransicht" : "Globale Position — direkt eingeben um Reihenfolge zu ändern"}">
                   <input class="a-pos-input ${filterActive ? "is-local" : ""}" type="number" min="1" max="${maxPos}"
@@ -4539,6 +4563,28 @@ function refreshAdminProductList(){
 
   const resetEl = document.getElementById("filterReset");
   if(resetEl) resetEl.hidden = !(productFilterCat!=="all" || productFilterStyle!=="all" || productFilterQuery.trim()!=="");
+
+  updateBulkBarUI();
+}
+
+// Aktualisiert nur Zaehler/Beschriftung/aktiv-Zustand der Mehrfachauswahl-Leiste
+// (bulkCount, "Alle auswählen"-Button, die drei Aktions-Buttons) -- OHNE die
+// Produktliste selbst neu zu rendern. Wird nach jedem einzelnen Checkbox-Klick
+// gebraucht (siehe change-Listener auf #list), da ein voller render() dort die
+// portionsweise geladene Liste auf die ersten 50 Zeilen zuruecksetzen wuerde.
+function updateBulkBarUI(){
+  const countEl = document.getElementById("bulkCount");
+  if(countEl) countEl.textContent = `${selectedProductIds.size} ausgewählt`;
+  ["bulkHideBtn", "bulkShowBtn", "bulkDeleteBtn"].forEach(id=>{
+    const btn = document.getElementById(id);
+    if(btn) btn.disabled = selectedProductIds.size === 0;
+  });
+  const selAllBtn = document.getElementById("bulkSelectAllBtn");
+  if(selAllBtn){
+    const items = filteredAdminProducts();
+    const allSelected = items.length > 0 && items.every(p => selectedProductIds.has(p.id));
+    selAllBtn.textContent = allSelected ? "Alle abwählen" : "Alle auswählen";
+  }
 }
 
 function renderDashboard(){
@@ -5014,6 +5060,25 @@ function renderDashboard(){
             ? `Bearbeiten/Löschen wirkt hier auf ALLE Kopien bei allen Creatorn. ${state.products.length} ${state.products.length === 1 ? "Gruppe" : "Gruppen"}.`
             : `Oben in der Liste = oben auf der Seite. ${state.products.length} ${state.products.length === 1 ? "Produkt" : "Produkte"}.`}</p>
         </div>
+
+        ${state.products.length > 0 ? `
+        <div class="a-bulk-row">
+          <button type="button" class="a-btn a-btn-ghost" id="bulkToggleBtn">${bulkSelectMode ? "Fertig" : "Auswählen"}</button>
+          ${bulkSelectMode ? (()=>{
+            const bulkItems = filteredAdminProducts();
+            const bulkAllSelected = bulkItems.length > 0 && bulkItems.every(p => selectedProductIds.has(p.id));
+            return `
+          <div class="a-bulk-bar">
+            <button type="button" class="a-btn a-btn-ghost" id="bulkSelectAllBtn">${bulkAllSelected ? "Alle abwählen" : "Alle auswählen"}</button>
+            <span class="a-bulk-count" id="bulkCount">${selectedProductIds.size} ausgewählt</span>
+            <div class="a-bulk-actions">
+              <button type="button" class="a-btn a-btn-ghost" id="bulkHideBtn" ${selectedProductIds.size ? "" : "disabled"}>Ausblenden</button>
+              <button type="button" class="a-btn a-btn-ghost" id="bulkShowBtn" ${selectedProductIds.size ? "" : "disabled"}>Einblenden</button>
+              <button type="button" class="a-btn a-btn-danger" id="bulkDeleteBtn" ${selectedProductIds.size ? "" : "disabled"}>Löschen</button>
+            </div>
+          </div>`;
+          })() : ""}
+        </div>` : ""}
 
         ${!isAllMode ? `
         <div class="a-csv-row">
@@ -7329,6 +7394,7 @@ function wireDashboard(){
       closeSwitch();
       state.activeId = pick.dataset.pick;
       editingProductId = null;
+      bulkSelectMode = false; selectedProductIds.clear();
       productFilterCat = "all"; productFilterSubcat = "all"; productFilterStyle = "all"; productFilterQuery = "";
       await loadCategoriesFor(state.activeId);
       state.products = await loadProducts(state.activeId);
@@ -8216,6 +8282,19 @@ function wireDashboard(){
     }
   });
 
+  // Checkbox-Klicks separat als "change" statt im obigen Klick-Listener --
+  // aendert nur selectedProductIds + ein paar DOM-Details direkt (kein render()),
+  // sonst wuerde jeder einzelne Haken die portionsweise geladene Liste
+  // (renderAdminProductRows/ADMIN_ROW_CHUNK_SIZE) auf die ersten 50 Zeilen zuruecksetzen.
+  document.getElementById("list")?.addEventListener("change", (e)=>{
+    const cb = e.target.closest("[data-select]");
+    if(!cb) return;
+    const id = cb.dataset.select;
+    if(cb.checked) selectedProductIds.add(id); else selectedProductIds.delete(id);
+    cb.closest(".a-row")?.classList.toggle("is-selected", cb.checked);
+    updateBulkBarUI();
+  });
+
   wireDragReorder();
 
   // ---- Produktfilter: Kategorie/Style loesen sofort aus, Suche debounced,
@@ -8255,6 +8334,54 @@ function wireDashboard(){
   }
   if(filterResetEl) filterResetEl.onclick = ()=>{
     productFilterCat = "all"; productFilterSubcat = "all"; productFilterStyle = "all"; productFilterQuery = "";
+    render();
+  };
+
+  // ---- Mehrfachauswahl ----
+  const bulkToggleBtn = document.getElementById("bulkToggleBtn");
+  if(bulkToggleBtn) bulkToggleBtn.onclick = ()=>{
+    bulkSelectMode = !bulkSelectMode;
+    selectedProductIds.clear();
+    render();
+  };
+
+  const bulkSelectAllBtn = document.getElementById("bulkSelectAllBtn");
+  if(bulkSelectAllBtn) bulkSelectAllBtn.onclick = ()=>{
+    const items = filteredAdminProducts();
+    const allSelected = items.length > 0 && items.every(p => selectedProductIds.has(p.id));
+    if(allSelected) items.forEach(p => selectedProductIds.delete(p.id));
+    else items.forEach(p => selectedProductIds.add(p.id));
+    render();
+  };
+
+  async function runBulkUpdate(fields, successText){
+    if(!selectedProductIds.size) return;
+    const ids = Array.from(selectedProductIds);
+    const { error } = await sb.from("products").update(fields).in("id", ids);
+    if(error) return atoast(error.message, "err");
+    atoast(`${ids.length} ${ids.length === 1 ? "Produkt" : "Produkte"} ${successText}.`);
+    selectedProductIds.clear();
+    state.products = await loadProducts(state.activeId);
+    render();
+  }
+
+  const bulkHideBtn = document.getElementById("bulkHideBtn");
+  if(bulkHideBtn) bulkHideBtn.onclick = ()=> runBulkUpdate({ is_hidden: true }, "ausgeblendet");
+
+  const bulkShowBtn = document.getElementById("bulkShowBtn");
+  if(bulkShowBtn) bulkShowBtn.onclick = ()=> runBulkUpdate({ is_hidden: false }, "wieder angezeigt");
+
+  const bulkDeleteBtn = document.getElementById("bulkDeleteBtn");
+  if(bulkDeleteBtn) bulkDeleteBtn.onclick = async ()=>{
+    if(!selectedProductIds.size) return;
+    const ids = Array.from(selectedProductIds);
+    if(!confirm(`${ids.length} ${ids.length === 1 ? "Produkt" : "Produkte"} wirklich löschen? Das lässt sich nicht rückgängig machen.`)) return;
+    const { error } = await sb.from("products").delete().in("id", ids);
+    if(error) return atoast(error.message, "err");
+    atoast(`${ids.length} ${ids.length === 1 ? "Produkt" : "Produkte"} gelöscht.`);
+    if(selectedProductIds.has(editingProductId)) editingProductId = null;
+    selectedProductIds.clear();
+    state.products = await loadProducts(state.activeId);
     render();
   };
 }
