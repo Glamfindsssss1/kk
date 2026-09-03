@@ -885,6 +885,35 @@
     box-shadow:0 0 0 1px var(--accent) inset;}
   .an-kpi-static{cursor:default;}
   .an-kpi-static:hover{border-color:var(--border);}
+  /* Besucher-Weltkarte: dunkle Karte im hellen Dashboard — der Globus mit
+     seiner Nachtansicht wirkt so wie ein eigenes "Fenster", und die hellen
+     Besucherpunkte heben sich deutlich ab. */
+  .an-globe-card{border:1px solid #1e293b;border-radius:16px;background:#0b1220;
+    padding:18px 20px 14px;margin-bottom:24px;overflow:hidden;}
+  .an-globe-head{display:flex;align-items:center;justify-content:space-between;gap:12px;
+    flex-wrap:wrap;margin-bottom:12px;}
+  .an-globe-head .a-block-title{color:#e2e8f0;}
+  .an-globe-toggle{border:1px solid #334155;background:#111c30;color:#cbd5e1;
+    border-radius:9px;padding:7px 12px;font:inherit;font-size:12px;font-weight:700;
+    cursor:pointer;transition:border-color .14s ease,color .14s ease;}
+  .an-globe-toggle:hover{border-color:#475569;color:#fff;}
+  .an-globe-toggle:focus-visible{outline:3px solid rgba(56,189,248,.4);outline-offset:2px;}
+  .an-globe-stage{position:relative;width:100%;height:420px;display:flex;
+    align-items:center;justify-content:center;cursor:grab;}
+  .an-globe-stage:active{cursor:grabbing;}
+  .an-globe-stage canvas{display:block;}
+  .an-globe-hint{margin:0;text-align:center;font-size:13px;line-height:1.6;color:#94a3b8;}
+  .an-globe-legend{border-top:1px solid #1e293b;margin-top:12px;padding-top:12px;}
+  .an-globe-top{display:flex;gap:10px;flex-wrap:wrap;}
+  .an-globe-top-item{display:inline-flex;align-items:center;gap:8px;background:#111c30;
+    border:1px solid #1e293b;border-radius:999px;padding:6px 12px 6px 6px;}
+  .an-globe-rank{width:20px;height:20px;border-radius:999px;background:#38bdf8;color:#04243a;
+    font-size:11px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;}
+  .an-globe-country{font-size:13px;font-weight:700;color:#e2e8f0;}
+  .an-globe-share{font-size:12px;font-weight:700;color:#38bdf8;}
+  .an-globe-note{margin:10px 0 0;font-size:12px;color:#64748b;}
+  @media (max-width:640px){ .an-globe-stage{height:320px;} }
+
   .an-live-dot{display:inline-block;width:8px;height:8px;border-radius:999px;
     background:#10b981;animation:anLivePulse 1.6s ease-in-out infinite;}
   @keyframes anLivePulse{
@@ -2015,6 +2044,130 @@ const SUPABASE_URL  = "https://voskcgnbwpemacphyuxb.supabase.co";
 const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZvc2tjZ25id3BlbWFjcGh5dXhiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODczMTM2ODYsImV4cCI6MjEwMjg4OTY4Nn0.tHXR68DrRTZpOWvd1ny1bph0F1WC1xvML_zjfzt54JI";
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
+// ---------------------------------------------------------------------
+//  Herkunftsland des Besuchers (fuer die Weltkarte im Analytics-Bereich)
+// ---------------------------------------------------------------------
+// Abgeleitet aus der ZEITZONE des Browsers, nicht aus der IP-Adresse:
+//  * Die Seite liegt auf GitHub Pages -- es gibt keinen eigenen Server, der
+//    die IP ueberhaupt zu Gesicht bekaeme.
+//  * Ein fremder GeoIP-Dienst wuerde die IP JEDES Besuchers an einen Dritten
+//    schicken (DSGVO-Thema) und bei 10.000 Besuchern/Tag jedes kostenlose
+//    Kontingent sprengen; zusaetzlich blocken viele Adblocker genau diese
+//    Dienste, wodurch die Karte lueckenhaft waere.
+//  * Die Zeitzone liefert das Land ohne Zusatz-Request, ohne Drittanbieter
+//    und ohne personenbezogene Daten -- und ist bei VPN-Nutzern sogar
+//    zuverlaessiger als die IP (das Betriebssystem behaelt seine Zeitzone).
+// Ungenauigkeiten sind dadurch moeglich (Reisende mit Heimat-Zeitzone), fuer
+// eine Herkunfts-Uebersicht auf Landesebene aber voellig ausreichend.
+//
+// Kompakte Tabellen als Strings statt als Objekt-Literale -- spart im
+// Einzeldatei-Aufbau spuerbar Platz und wird einmalig beim Laden in Maps
+// aufgeloest. Format: "LAENDERCODE=Zone1,Zone2|..."
+const TZ_COUNTRY_RAW =
+  "DE=Europe/Berlin,Europe/Busingen|AT=Europe/Vienna|CH=Europe/Zurich|FR=Europe/Paris|ES=Europe/Madrid,Atlantic/Canary,Africa/Ceuta|" +
+  "IT=Europe/Rome|NL=Europe/Amsterdam|BE=Europe/Brussels|PT=Europe/Lisbon,Atlantic/Madeira,Atlantic/Azores|IE=Europe/Dublin|" +
+  "GB=Europe/London|DK=Europe/Copenhagen|SE=Europe/Stockholm|NO=Europe/Oslo|FI=Europe/Helsinki|PL=Europe/Warsaw|" +
+  "CZ=Europe/Prague|HU=Europe/Budapest|RO=Europe/Bucharest|BG=Europe/Sofia|GR=Europe/Athens|TR=Europe/Istanbul,Asia/Istanbul|" +
+  "RU=Europe/Moscow,Europe/Kaliningrad,Europe/Samara,Asia/Yekaterinburg,Asia/Novosibirsk,Asia/Krasnoyarsk,Asia/Irkutsk,Asia/Yakutsk,Asia/Vladivostok|" +
+  "UA=Europe/Kyiv,Europe/Kiev|BY=Europe/Minsk|HR=Europe/Zagreb|RS=Europe/Belgrade|SI=Europe/Ljubljana|SK=Europe/Bratislava|" +
+  "LT=Europe/Vilnius|LV=Europe/Riga|EE=Europe/Tallinn|LU=Europe/Luxembourg|MT=Europe/Malta|CY=Asia/Nicosia,Europe/Nicosia|" +
+  "IS=Atlantic/Reykjavik|AL=Europe/Tirane|MK=Europe/Skopje|BA=Europe/Sarajevo|ME=Europe/Podgorica|MD=Europe/Chisinau|" +
+  "AD=Europe/Andorra|MC=Europe/Monaco|GI=Europe/Gibraltar|" +
+  "US=America/New_York,America/Chicago,America/Denver,America/Los_Angeles,America/Phoenix,America/Anchorage,Pacific/Honolulu,America/Detroit,America/Indiana/Indianapolis,America/Boise|" +
+  "CA=America/Toronto,America/Vancouver,America/Edmonton,America/Winnipeg,America/Halifax,America/St_Johns,America/Regina|" +
+  "MX=America/Mexico_City,America/Tijuana,America/Monterrey,America/Cancun,America/Chihuahua|" +
+  "BR=America/Sao_Paulo,America/Fortaleza,America/Manaus,America/Bahia,America/Recife,America/Belem,America/Porto_Velho|" +
+  "AR=America/Argentina/Buenos_Aires,America/Buenos_Aires,America/Argentina/Cordoba|CL=America/Santiago,Pacific/Easter|" +
+  "CO=America/Bogota|PE=America/Lima|VE=America/Caracas|BO=America/La_Paz|PY=America/Asuncion|UY=America/Montevideo|" +
+  "EC=America/Guayaquil,Pacific/Galapagos|PA=America/Panama|CR=America/Costa_Rica|GT=America/Guatemala|SV=America/El_Salvador|" +
+  "HN=America/Tegucigalpa|NI=America/Managua|CU=America/Havana|DO=America/Santo_Domingo|PR=America/Puerto_Rico|" +
+  "JM=America/Jamaica|HT=America/Port-au-Prince|TT=America/Port_of_Spain|" +
+  "JP=Asia/Tokyo|KR=Asia/Seoul|CN=Asia/Shanghai,Asia/Chongqing,Asia/Urumqi,Asia/Harbin|HK=Asia/Hong_Kong|TW=Asia/Taipei|" +
+  "SG=Asia/Singapore|TH=Asia/Bangkok|ID=Asia/Jakarta,Asia/Makassar,Asia/Jayapura,Asia/Pontianak|PH=Asia/Manila|" +
+  "MY=Asia/Kuala_Lumpur,Asia/Kuching|VN=Asia/Ho_Chi_Minh,Asia/Saigon|IN=Asia/Kolkata,Asia/Calcutta|PK=Asia/Karachi|" +
+  "BD=Asia/Dhaka|LK=Asia/Colombo|NP=Asia/Kathmandu,Asia/Katmandu|MM=Asia/Yangon,Asia/Rangoon|KH=Asia/Phnom_Penh|" +
+  "LA=Asia/Vientiane|AE=Asia/Dubai|SA=Asia/Riyadh|QA=Asia/Qatar|KW=Asia/Kuwait|BH=Asia/Bahrain|OM=Asia/Muscat|" +
+  "IQ=Asia/Baghdad|IR=Asia/Tehran|IL=Asia/Jerusalem,Asia/Tel_Aviv|JO=Asia/Amman|LB=Asia/Beirut|SY=Asia/Damascus|" +
+  "UZ=Asia/Tashkent|KZ=Asia/Almaty,Asia/Aqtobe|AZ=Asia/Baku|GE=Asia/Tbilisi|AM=Asia/Yerevan|MN=Asia/Ulaanbaatar|" +
+  "MO=Asia/Macau|BN=Asia/Brunei|AF=Asia/Kabul|MV=Indian/Maldives|" +
+  "EG=Africa/Cairo|NG=Africa/Lagos|ZA=Africa/Johannesburg|KE=Africa/Nairobi|MA=Africa/Casablanca|DZ=Africa/Algiers|" +
+  "TN=Africa/Tunis|GH=Africa/Accra|ET=Africa/Addis_Ababa|TZ=Africa/Dar_es_Salaam|UG=Africa/Kampala|SD=Africa/Khartoum|" +
+  "CI=Africa/Abidjan|SN=Africa/Dakar|LY=Africa/Tripoli|AO=Africa/Luanda|ZW=Africa/Harare|ZM=Africa/Lusaka|" +
+  "MZ=Africa/Maputo|CD=Africa/Kinshasa,Africa/Lubumbashi|CM=Africa/Douala|NA=Africa/Windhoek|BW=Africa/Gaborone|" +
+  "AU=Australia/Sydney,Australia/Melbourne,Australia/Brisbane,Australia/Perth,Australia/Adelaide,Australia/Hobart,Australia/Darwin|" +
+  "NZ=Pacific/Auckland|FJ=Pacific/Fiji|PG=Pacific/Port_Moresby";
+
+// Laendercode -> Breitengrad, Laengengrad (grober Mittelpunkt fuers Setzen
+// des Punktes auf dem Globus) und deutscher Anzeigename.
+const COUNTRY_INFO_RAW =
+  "DE,51.2,10.4,Deutschland|AT,47.6,14.1,Österreich|CH,46.8,8.2,Schweiz|FR,46.6,2.4,Frankreich|ES,40.2,-3.7,Spanien|" +
+  "IT,42.8,12.6,Italien|NL,52.2,5.5,Niederlande|BE,50.6,4.6,Belgien|PT,39.6,-8.0,Portugal|IE,53.2,-8.0,Irland|" +
+  "GB,54.0,-2.5,Großbritannien|DK,56.1,9.5,Dänemark|SE,62.0,15.5,Schweden|NO,64.5,12.0,Norwegen|FI,64.0,26.0,Finnland|" +
+  "PL,52.1,19.4,Polen|CZ,49.8,15.5,Tschechien|HU,47.2,19.4,Ungarn|RO,45.9,25.0,Rumänien|BG,42.7,25.3,Bulgarien|" +
+  "GR,39.1,22.0,Griechenland|TR,39.0,35.2,Türkei|RU,58.0,50.0,Russland|UA,49.0,31.5,Ukraine|BY,53.7,27.9,Belarus|" +
+  "HR,45.2,15.5,Kroatien|RS,44.2,20.9,Serbien|SI,46.1,14.8,Slowenien|SK,48.7,19.5,Slowakei|LT,55.3,23.9,Litauen|" +
+  "LV,56.9,24.6,Lettland|EE,58.7,25.5,Estland|LU,49.8,6.1,Luxemburg|MT,35.9,14.4,Malta|CY,35.1,33.2,Zypern|" +
+  "IS,64.9,-19.0,Island|AL,41.2,20.2,Albanien|MK,41.6,21.7,Nordmazedonien|BA,44.0,17.8,Bosnien-Herzegowina|" +
+  "ME,42.7,19.4,Montenegro|MD,47.2,28.5,Moldau|AD,42.5,1.5,Andorra|MC,43.7,7.4,Monaco|GI,36.1,-5.4,Gibraltar|" +
+  "US,39.8,-98.6,USA|CA,56.1,-106.3,Kanada|MX,23.6,-102.6,Mexiko|BR,-14.2,-51.9,Brasilien|AR,-38.4,-63.6,Argentinien|" +
+  "CL,-35.7,-71.5,Chile|CO,4.6,-74.3,Kolumbien|PE,-9.2,-75.0,Peru|VE,6.4,-66.6,Venezuela|BO,-16.3,-63.6,Bolivien|" +
+  "PY,-23.4,-58.4,Paraguay|UY,-32.5,-55.8,Uruguay|EC,-1.8,-78.2,Ecuador|PA,8.5,-80.8,Panama|CR,9.7,-83.8,Costa Rica|" +
+  "GT,15.8,-90.2,Guatemala|SV,13.8,-88.9,El Salvador|HN,15.2,-86.2,Honduras|NI,12.9,-85.2,Nicaragua|CU,21.5,-77.8,Kuba|" +
+  "DO,18.7,-70.2,Dominikanische Rep.|PR,18.2,-66.6,Puerto Rico|JM,18.1,-77.3,Jamaika|HT,19.0,-72.3,Haiti|" +
+  "TT,10.7,-61.2,Trinidad und Tobago|" +
+  "JP,36.2,138.3,Japan|KR,35.9,127.8,Südkorea|CN,35.9,104.2,China|HK,22.3,114.2,Hongkong|TW,23.7,121.0,Taiwan|" +
+  "SG,1.35,103.8,Singapur|TH,15.9,101.0,Thailand|ID,-0.8,113.9,Indonesien|PH,12.9,121.8,Philippinen|" +
+  "MY,4.2,101.98,Malaysia|VN,14.1,108.3,Vietnam|IN,20.6,79.0,Indien|PK,30.4,69.3,Pakistan|BD,23.7,90.4,Bangladesch|" +
+  "LK,7.9,80.8,Sri Lanka|NP,28.4,84.1,Nepal|MM,21.9,95.96,Myanmar|KH,12.6,104.99,Kambodscha|LA,19.9,102.5,Laos|" +
+  "AE,23.4,53.8,VAE|SA,23.9,45.1,Saudi-Arabien|QA,25.4,51.2,Katar|KW,29.3,47.5,Kuwait|BH,26.0,50.6,Bahrain|" +
+  "OM,21.5,55.9,Oman|IQ,33.2,43.7,Irak|IR,32.4,53.7,Iran|IL,31.05,34.85,Israel|JO,30.6,36.2,Jordanien|" +
+  "LB,33.9,35.9,Libanon|SY,34.8,39.0,Syrien|UZ,41.4,64.6,Usbekistan|KZ,48.0,66.9,Kasachstan|AZ,40.1,47.6,Aserbaidschan|" +
+  "GE,42.3,43.4,Georgien|AM,40.1,45.0,Armenien|MN,46.9,103.8,Mongolei|MO,22.2,113.5,Macau|BN,4.5,114.7,Brunei|" +
+  "AF,33.9,67.7,Afghanistan|MV,3.2,73.2,Malediven|" +
+  "EG,26.8,30.8,Ägypten|NG,9.1,8.7,Nigeria|ZA,-30.6,22.9,Südafrika|KE,-0.02,37.9,Kenia|MA,31.8,-7.1,Marokko|" +
+  "DZ,28.0,1.7,Algerien|TN,33.9,9.5,Tunesien|GH,7.9,-1.0,Ghana|ET,9.1,40.5,Äthiopien|TZ,-6.4,34.9,Tansania|" +
+  "UG,1.4,32.3,Uganda|SD,12.9,30.2,Sudan|CI,7.5,-5.5,Elfenbeinküste|SN,14.5,-14.5,Senegal|LY,26.3,17.2,Libyen|" +
+  "AO,-11.2,17.9,Angola|ZW,-19.0,29.2,Simbabwe|ZM,-13.1,27.8,Sambia|MZ,-18.7,35.5,Mosambik|CD,-4.0,21.8,DR Kongo|" +
+  "CM,7.4,12.4,Kamerun|NA,-22.96,18.5,Namibia|BW,-22.3,24.7,Botswana|" +
+  "AU,-25.3,133.8,Australien|NZ,-40.9,174.9,Neuseeland|FJ,-17.7,178.1,Fidschi|PG,-6.3,143.96,Papua-Neuguinea";
+
+// Einmalig beim Laden aufgeloest (nicht bei jedem Event neu geparst).
+const TZ_TO_COUNTRY = (()=>{
+  const map = new Map();
+  TZ_COUNTRY_RAW.split("|").forEach(entry=>{
+    const [code, zones] = entry.split("=");
+    if(!code || !zones) return;
+    zones.split(",").forEach(z => map.set(z, code));
+  });
+  return map;
+})();
+
+const COUNTRY_INFO = (()=>{
+  const map = new Map();
+  COUNTRY_INFO_RAW.split("|").forEach(entry=>{
+    const [code, lat, lng, name] = entry.split(",");
+    if(!code) return;
+    map.set(code, { code, lat: Number(lat), lng: Number(lng), name });
+  });
+  return map;
+})();
+
+// Liefert den 2-stelligen Laendercode oder null, wenn sich nichts sicher
+// bestimmen laesst. Faellt bei unbekannter Zeitzone auf die Sprach-Region
+// zurueck ("de-CH" -> CH), was bei exotischen Zonen meist noch passt.
+function detectCountry(){
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const fromTz = TZ_TO_COUNTRY.get(tz);
+    if(fromTz) return fromTz;
+    const m = String(navigator.language || "").match(/[-_]([A-Za-z]{2})$/);
+    const fromLang = m ? m[1].toUpperCase() : null;
+    return (fromLang && COUNTRY_INFO.has(fromLang)) ? fromLang : null;
+  } catch {
+    return null; // z.B. sehr alte Browser ohne Intl -- Tracking bleibt trotzdem heil
+  }
+}
+
 // =====================================================================
 //  Analytics: leichtgewichtiges Event-Tracking fuer die Storefront
 //  (page_view, banner_click, product_buy_click) — siehe analytics_events
@@ -2041,7 +2194,8 @@ function trackEvent(eventType, creatorSlug, productId){
         creator_slug: creatorSlug,
         event_type: eventType,
         product_id: productId || null,
-        device_id: getDeviceId()
+        device_id: getDeviceId(),
+        country: detectCountry()
       })
     }).catch(()=>{}); // Tracking darf niemals einen sichtbaren Fehler werfen —
                        // ein 409 (Duplikat vom selben Geraet/Produkt/Tag) ist hier
@@ -5534,7 +5688,7 @@ async function loadAnalyticsData(){
     ? null
     : state.creators.find(c => c.id === analyticsCreatorId);
 
-  let q = sb.from("analytics_events").select("event_type, product_id, created_at, creator_slug, device_id");
+  let q = sb.from("analytics_events").select("event_type, product_id, created_at, creator_slug, device_id, country");
   if(since) q = q.gte("created_at", since.toISOString());
   if(targetCreator) q = q.eq("creator_slug", targetCreator.slug);
 
@@ -5607,7 +5761,39 @@ function aggregateAnalytics(events, products){
     .sort((a,b)=> b.count - a.count)
     .slice(0, 30);
 
-  return { pageViews, uniqueVisitors, bannerClicks, buyClickCount: buyClicks.length, conversion, series, topProducts };
+  // Herkunft fuer die Weltkarte: Aufrufe und eindeutige Besucher je Land.
+  // Events ohne Land (alle Zeilen von vor der Einfuehrung dieser Erfassung,
+  // sowie Browser ohne bestimmbare Zeitzone) fallen hier bewusst raus statt
+  // als "Unbekannt" einen Punkt irgendwo auf dem Globus zu erzeugen --
+  // dafuer meldet die Karte unten, wie viele Aufrufe ohne Land vorliegen.
+  const countries = new Map(); // code -> { views, _deviceIds:Set, buys }
+  let viewsWithoutCountry = 0;
+  events.forEach(e=>{
+    const isView = e.event_type === "page_view";
+    if(!e.country || !COUNTRY_INFO.has(e.country)){
+      if(isView) viewsWithoutCountry++;
+      return;
+    }
+    if(!countries.has(e.country)) countries.set(e.country, { views:0, buys:0, _deviceIds:new Set() });
+    const c = countries.get(e.country);
+    if(isView){
+      c.views++;
+      if(e.device_id) c._deviceIds.add(e.device_id);
+    }
+    else if(e.event_type === "product_buy_click") c.buys++;
+  });
+  const byCountry = Array.from(countries.entries())
+    .map(([code, v]) => ({
+      ...COUNTRY_INFO.get(code),
+      views: v.views,
+      buys: v.buys,
+      visitors: v._deviceIds.size
+    }))
+    .filter(c => c.views > 0)
+    .sort((a,b)=> b.views - a.views);
+
+  return { pageViews, uniqueVisitors, bannerClicks, buyClickCount: buyClicks.length, conversion,
+           series, topProducts, byCountry, viewsWithoutCountry };
 }
 
 // Klickverteilung nach Affiliate-Agent (OopBuy/HipoBuy/LitBuy/...), abgeleitet aus
@@ -5791,7 +5977,7 @@ function wireKpiCards(){
 
 // "Live gerade jetzt"-KPI: holt den aktuellen Zaehler per RPC und schreibt
 // ihn ins DOM. Das Element fehlt kurz bei JEDEM refreshAnalyticsBody()-
-// Aufruf (der baut #anBody inkl. KPI-Grid neu auf) -- ein fehlendes Element
+// Aufruf (der baut #anBodyTop inkl. KPI-Grid neu auf) -- ein fehlendes Element
 // heisst hier also NICHT zwingend "Ansicht verlassen", deshalb wird das
 // Interval nur explizit beim Wegnavigieren gestoppt (siehe stopLiveVisitorPolling,
 // aufgerufen von den Kopfzeilen-Buttons in renderAnalytics), nie hier drin.
@@ -5815,7 +6001,168 @@ function stopLiveVisitorPolling(){
   liveVisitorPollTimer = null;
 }
 
+// ---------------------------------------------------------------------
+//  Besucher-Weltkarte: 3D-Globus (globe.gl) im Analytics-Bereich
+// ---------------------------------------------------------------------
+// Die Bibliothek (~1,9 MB) plus Erdtextur wird BEWUSST erst geladen, wenn
+// der Globus tatsaechlich Daten anzeigen soll -- niemals auf der oeffentlichen
+// Storefront und auch nicht, solange es gar keine Herkunftsdaten gibt.
+const GLOBE_SCRIPT_URL  = "https://cdn.jsdelivr.net/npm/globe.gl@2.46.2/dist/globe.gl.min.js";
+const GLOBE_TEXTURE_URL = "https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-night.jpg";
+
+let globeInstance = null;
+let globeScriptPromise = null;
+let globeResizeHandler = null;
+let globeAutoRotate = true;
+
+function loadGlobeScript(){
+  if(window.Globe) return Promise.resolve();
+  if(globeScriptPromise) return globeScriptPromise;
+  globeScriptPromise = new Promise((resolve, reject)=>{
+    const s = document.createElement("script");
+    s.src = GLOBE_SCRIPT_URL;
+    s.onload = ()=> resolve();
+    s.onerror = ()=>{
+      globeScriptPromise = null; // beim naechsten Versuch neu laden duerfen
+      reject(new Error("Globus-Bibliothek konnte nicht geladen werden."));
+    };
+    document.head.appendChild(s);
+  });
+  return globeScriptPromise;
+}
+
+// Gibt den WebGL-Kontext wieder frei. Ohne das wuerde jeder Besuch der
+// Analytics-Ansicht einen weiteren Kontext offen lassen -- Browser erlauben
+// nur wenige gleichzeitig, danach bliebe der Globus einfach schwarz.
+function destroyGlobe(){
+  if(globeResizeHandler){
+    window.removeEventListener("resize", globeResizeHandler);
+    globeResizeHandler = null;
+  }
+  if(globeInstance){
+    try { globeInstance._destructor(); } catch { /* Bibliothek schon entladen */ }
+    globeInstance = null;
+  }
+  const stage = document.getElementById("anGlobeStage");
+  if(stage) stage.innerHTML = "";
+}
+
+// Farbe/Groesse eines Landpunktes richten sich nach seinem Anteil am
+// staerksten Land -- so bleibt die Karte auch bei sehr unterschiedlichen
+// Groessenordnungen lesbar.
+function globePointColor(share){
+  return `rgba(56, 189, 248, ${(0.55 + share * 0.45).toFixed(2)})`;
+}
+
+function renderGlobeLegend(byCountry, viewsWithoutCountry){
+  const legend = document.getElementById("anGlobeLegend");
+  if(!legend) return;
+  const totalViews = byCountry.reduce((s,c)=> s + c.views, 0);
+  const top = byCountry.slice(0, 3);
+  legend.innerHTML = `
+    ${top.length ? `<div class="an-globe-top">
+      ${top.map((c,i)=>`
+        <div class="an-globe-top-item">
+          <span class="an-globe-rank">${i+1}</span>
+          <span class="an-globe-country">${aesc(c.name)}</span>
+          <span class="an-globe-share">${totalViews ? Math.round((c.views / totalViews) * 100) : 0} %</span>
+        </div>`).join("")}
+    </div>` : ""}
+    ${viewsWithoutCountry ? `<p class="an-globe-note">${viewsWithoutCountry.toLocaleString("de-DE")} Aufrufe ohne Herkunft (vor Einführung der Erfassung oder Zeitzone nicht bestimmbar).</p>` : ""}`;
+}
+
+// Wird nach jedem Filterwechsel aufgerufen: baut den Globus NICHT neu auf,
+// sondern schiebt nur neue Punkte hinein (siehe Kommentar in
+// refreshAnalyticsBody zur Container-Aufteilung).
+async function updateVisitorGlobe(byCountry, viewsWithoutCountry){
+  const card  = document.getElementById("anGlobeCard");
+  const stage = document.getElementById("anGlobeStage");
+  if(!card || !stage) return;
+  card.hidden = false;
+
+  renderGlobeLegend(byCountry, viewsWithoutCountry);
+
+  // Noch gar keine Herkunftsdaten: erklaeren statt einen leeren Globus zu
+  // zeigen -- und vor allem die 1,9-MB-Bibliothek gar nicht erst laden.
+  if(!byCountry.length && !globeInstance){
+    stage.innerHTML = `<p class="an-globe-hint">Noch keine Herkunftsdaten in diesem Zeitraum.<br>
+      Die Erfassung startet mit dieser Version — ältere Aufrufe haben kein Land hinterlegt.</p>`;
+    return;
+  }
+
+  const maxViews = Math.max(1, ...byCountry.map(c => c.views));
+  const points = byCountry.map(c => ({
+    ...c,
+    share: c.views / maxViews
+  }));
+
+  if(!globeInstance){
+    stage.innerHTML = `<p class="an-globe-hint">Globus wird geladen …</p>`;
+    try {
+      await loadGlobeScript();
+    } catch(err){
+      stage.innerHTML = `<p class="an-globe-hint">${aesc(err.message)}</p>`;
+      return;
+    }
+    // Zwischenzeitlich weggeklickt? Dann nichts mehr aufbauen.
+    if(!document.getElementById("anGlobeStage")) return;
+    stage.innerHTML = "";
+
+    globeInstance = new window.Globe(stage)
+      .globeImageUrl(GLOBE_TEXTURE_URL)
+      .backgroundColor("rgba(0,0,0,0)")
+      .showAtmosphere(true)
+      .atmosphereColor("#38bdf8")
+      .atmosphereAltitude(0.18)
+      .pointLat("lat").pointLng("lng")
+      // Flache Scheiben statt hoher Saeulen: als "leuchtende Punkte auf der
+      // Erdoberflaeche" gedacht -- eine grosse Hoehe liesse sie wie Nadeln
+      // aussehen und den Globus unruhig wirken.
+      .pointAltitude(d => 0.008 + d.share * 0.05)
+      .pointRadius(d => 0.45 + d.share * 0.5)
+      .pointColor(d => globePointColor(d.share))
+      .pointsTransitionDuration(600)
+      .pointLabel(d => `
+        <div style="font:600 13px/1.45 system-ui,sans-serif;background:#0f172a;color:#fff;
+                    padding:8px 11px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.35)">
+          <div style="font-weight:800;margin-bottom:3px">${aesc(d.name)}</div>
+          ${d.visitors.toLocaleString("de-DE")} Besucher<br>
+          ${d.views.toLocaleString("de-DE")} Aufrufe${d.buys ? `<br>${d.buys.toLocaleString("de-DE")} Produkt-Klicks` : ""}
+        </div>`)
+      // Klick auf ein Land dreht den Globus dorthin und zoomt leicht heran.
+      .onPointClick(d => globeInstance.pointOfView({ lat: d.lat, lng: d.lng, altitude: 1.6 }, 900))
+      .ringColor(() => "rgba(56,189,248,0.45)")
+      .ringMaxRadius(4)
+      .ringPropagationSpeed(1.4)
+      .ringRepeatPeriod(1400);
+
+    globeInstance.controls().autoRotate = globeAutoRotate;
+    globeInstance.controls().autoRotateSpeed = 0.6;
+    globeInstance.controls().enableZoom = true;
+    globeInstance.pointOfView({ lat: 25, lng: 8, altitude: 1.9 });
+
+    const sizeGlobe = ()=>{
+      if(!globeInstance || !stage.clientWidth) return;
+      globeInstance.width(stage.clientWidth).height(stage.clientHeight);
+    };
+    sizeGlobe();
+    globeResizeHandler = sizeGlobe;
+    window.addEventListener("resize", globeResizeHandler);
+  }
+
+  globeInstance.pointsData(points);
+  // Pulsierender Ring nur auf den drei staerksten Laendern -- auf allen
+  // gleichzeitig wuerde die Karte unruhig und bei vielen Laendern zaeh.
+  globeInstance.ringsData(points.slice(0, 3));
+}
+
 async function renderAnalytics(){
+  // Falls diese Ansicht neu aufgebaut wird, ohne dass vorher ueber einen der
+  // Kopfzeilen-Buttons weggeklickt wurde (z.B. Admin schliessen + neu oeffnen):
+  // erst den alten Globus samt WebGL-Kontext freigeben, sonst zeigte
+  // globeInstance auf ein laengst entferntes Canvas und der Globus bliebe leer.
+  destroyGlobe();
+
   app.innerHTML = `
     <div class="a-bar">
       <div class="a-bar-in">
@@ -5882,26 +6229,53 @@ async function renderAnalytics(){
             </div>
           </div>
         </div>
-        <div id="anBody">
+        <div id="anBodyTop">
           <p class="a-empty">Lädt …</p>
         </div>
+
+        <div class="an-globe-card" id="anGlobeCard" hidden>
+          <div class="an-globe-head">
+            <p class="a-block-title" style="margin:0">Besucher-Herkunft · Weltkarte</p>
+            <button type="button" class="an-globe-toggle" id="anGlobeRotate" aria-pressed="true"
+                    title="Automatische Drehung an/aus">Drehung stoppen</button>
+          </div>
+          <div class="an-globe-stage" id="anGlobeStage">
+            <p class="an-globe-hint" id="anGlobeHint">Globus wird geladen …</p>
+          </div>
+          <div class="an-globe-legend" id="anGlobeLegend"></div>
+        </div>
+
+        <div id="anBodyBottom"></div>
       </div>
     </div>`;
 
-  document.getElementById("backToDashboard").onclick = ()=>{ stopLiveVisitorPolling(); adminView = "dashboard"; render(); };
-  document.getElementById("openRevenue").onclick = ()=>{ stopLiveVisitorPolling(); adminView = "revenue"; render(); };
+  document.getElementById("backToDashboard").onclick = ()=>{ stopLiveVisitorPolling(); destroyGlobe(); adminView = "dashboard"; render(); };
+  document.getElementById("openRevenue").onclick = ()=>{ stopLiveVisitorPolling(); destroyGlobe(); adminView = "revenue"; render(); };
   document.getElementById("brandBackToSite").onclick = async ()=>{
     stopLiveVisitorPolling();
+    destroyGlobe();
     closeAdmin();
     await boot();
   };
-  document.getElementById("signout").onclick = async ()=>{ stopLiveVisitorPolling(); await sb.auth.signOut(); refresh(); };
+  document.getElementById("signout").onclick = async ()=>{ stopLiveVisitorPolling(); destroyGlobe(); await sb.auth.signOut(); refresh(); };
 
   const periodBar = document.getElementById("anPeriod");
   periodBar.querySelectorAll("[data-period]").forEach(btn=>{
     btn.classList.toggle("is-active", btn.dataset.period === analyticsPeriod);
     btn.onclick = ()=>{ analyticsPeriod = btn.dataset.period; refreshAnalyticsBody(); };
   });
+
+  // Auto-Drehung des Globus an/aus. Der Zustand liegt in globeAutoRotate,
+  // damit er beim naechsten Oeffnen der Ansicht erhalten bleibt.
+  const rotateBtn = document.getElementById("anGlobeRotate");
+  rotateBtn.setAttribute("aria-pressed", String(globeAutoRotate));
+  rotateBtn.textContent = globeAutoRotate ? "Drehung stoppen" : "Drehung starten";
+  rotateBtn.onclick = ()=>{
+    globeAutoRotate = !globeAutoRotate;
+    if(globeInstance) globeInstance.controls().autoRotate = globeAutoRotate;
+    rotateBtn.setAttribute("aria-pressed", String(globeAutoRotate));
+    rotateBtn.textContent = globeAutoRotate ? "Drehung stoppen" : "Drehung starten";
+  };
 
   const selectWrap   = document.getElementById("anCreatorSelectWrap");
   const selectBtn    = document.getElementById("anCreatorSelectBtn");
@@ -5962,8 +6336,14 @@ async function refreshAnalyticsBody(){
   document.querySelectorAll("#anPeriod [data-period]").forEach(btn=>
     btn.classList.toggle("is-active", btn.dataset.period === analyticsPeriod));
 
-  const body = document.getElementById("anBody");
-  if(!body) return;
+  // Zwei Container statt einem: der Globus-Block liegt DAZWISCHEN und darf
+  // beim Filterwechsel NICHT mit neu aufgebaut werden -- jeder Neuaufbau
+  // wuerde sonst einen frischen WebGL-Kontext erzeugen, und davon erlaubt
+  // der Browser nur eine Handvoll gleichzeitig (danach bliebe der Globus
+  // schwarz). Er bekommt deshalb nur neue Daten, kein neues DOM.
+  const body = document.getElementById("anBodyTop");
+  const bodyBottom = document.getElementById("anBodyBottom");
+  if(!body || !bodyBottom) return;
   body.innerHTML = `<p class="a-empty">Lädt …</p>`;
 
   const events = await loadAnalyticsData();
@@ -6021,8 +6401,10 @@ async function refreshAnalyticsBody(){
 
     <div class="an-chart-wrap" id="anChartWrap">
       ${renderAnalyticsChartBlock(agg.series)}
-    </div>
+    </div>`;
 
+  // Alles ab hier steht UNTER dem Globus-Block (siehe Container-Aufteilung oben).
+  bodyBottom.innerHTML = `
     <p class="a-block-title" style="margin:0 0 8px">Top 30 meistgeklickte Produkte</p>
     <div class="an-top-list">
       ${agg.topProducts.length ? agg.topProducts.map((row, i)=> `
@@ -6053,6 +6435,7 @@ async function refreshAnalyticsBody(){
   `;
 
   wireKpiCards();
+  updateVisitorGlobe(agg.byCountry, agg.viewsWithoutCountry);
 }
 
 // Ein Weidian-Mitarbeiter hat direkt bestaetigt: "today" in den Kennzahlen
