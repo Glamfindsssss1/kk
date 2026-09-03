@@ -885,6 +885,13 @@
     box-shadow:0 0 0 1px var(--accent) inset;}
   .an-kpi-static{cursor:default;}
   .an-kpi-static:hover{border-color:var(--border);}
+  .an-live-dot{display:inline-block;width:8px;height:8px;border-radius:999px;
+    background:#10b981;animation:anLivePulse 1.6s ease-in-out infinite;}
+  @keyframes anLivePulse{
+    0%,100%{box-shadow:0 0 0 0 rgba(16,185,129,.45);}
+    50%{box-shadow:0 0 0 5px rgba(16,185,129,0);}
+  }
+  @media (prefers-reduced-motion: reduce){.an-live-dot{animation:none;}}
   .an-kpi-label{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;
     letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;}
   .an-kpi-label svg{width:15px;height:15px;flex:0 0 auto;color:#9aa2b1;}
@@ -2041,6 +2048,36 @@ function trackEvent(eventType, creatorSlug, productId){
                        // erwuenschtes Verhalten, kein Fehler, deshalb kein weiteres Handling noetig.
   } catch {
     // z.B. sehr alte Browser ohne fetch — Tracking ist nie kritischer Pfad
+  }
+}
+
+// "Live gerade jetzt"-Heartbeat fuers Analytics (siehe live_sessions):
+// meldet sich alle LIVE_HEARTBEAT_MS bei Supabase, solange der Tab offen
+// bleibt -- Upsert (merge-duplicates) auf device_id aktualisiert einfach
+// den Zeitstempel der bestehenden Zeile statt Duplikate anzuhaeufen. Anders
+// als trackEvent() ist das kein "einmal beim Laden feuern", sondern muss
+// laufend wiederholt werden, damit "live" auch wirklich live bleibt.
+const LIVE_HEARTBEAT_MS = 25000;
+function sendLiveHeartbeat(){
+  if(!CREATOR_ROW) return;
+  try {
+    fetch(`${SUPABASE_URL}/rest/v1/live_sessions?on_conflict=device_id`, {
+      method: "POST",
+      keepalive: true,
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": SUPABASE_ANON,
+        "Authorization": `Bearer ${SUPABASE_ANON}`,
+        "Prefer": "resolution=merge-duplicates,return=minimal"
+      },
+      body: JSON.stringify({
+        device_id: getDeviceId(),
+        creator_slug: CREATOR_ROW.slug,
+        last_seen: new Date().toISOString()
+      })
+    }).catch(()=>{});
+  } catch {
+    // wie bei trackEvent: Tracking darf nie ein sichtbarer Fehler werden
   }
 }
 
@@ -5752,6 +5789,32 @@ function wireKpiCards(){
   });
 }
 
+// "Live gerade jetzt"-KPI: holt den aktuellen Zaehler per RPC und schreibt
+// ihn ins DOM. Das Element fehlt kurz bei JEDEM refreshAnalyticsBody()-
+// Aufruf (der baut #anBody inkl. KPI-Grid neu auf) -- ein fehlendes Element
+// heisst hier also NICHT zwingend "Ansicht verlassen", deshalb wird das
+// Interval nur explizit beim Wegnavigieren gestoppt (siehe stopLiveVisitorPolling,
+// aufgerufen von den Kopfzeilen-Buttons in renderAnalytics), nie hier drin.
+let liveVisitorPollTimer = null;
+async function refreshLiveVisitorCount(){
+  const el = document.getElementById("liveVisitorCount");
+  if(!el) return;
+  const slug = analyticsCreatorId === "all"
+    ? null
+    : (state.creators.find(c => c.id === analyticsCreatorId)?.slug ?? null);
+  const { data, error } = await sb.rpc("get_live_visitor_count", { p_creator_slug: slug });
+  if(!error) el.textContent = (data ?? 0).toLocaleString("de-DE");
+}
+function startLiveVisitorPolling(){
+  refreshLiveVisitorCount();
+  clearInterval(liveVisitorPollTimer);
+  liveVisitorPollTimer = setInterval(refreshLiveVisitorCount, 15000);
+}
+function stopLiveVisitorPolling(){
+  clearInterval(liveVisitorPollTimer);
+  liveVisitorPollTimer = null;
+}
+
 async function renderAnalytics(){
   app.innerHTML = `
     <div class="a-bar">
@@ -5825,13 +5888,14 @@ async function renderAnalytics(){
       </div>
     </div>`;
 
-  document.getElementById("backToDashboard").onclick = ()=>{ adminView = "dashboard"; render(); };
-  document.getElementById("openRevenue").onclick = ()=>{ adminView = "revenue"; render(); };
+  document.getElementById("backToDashboard").onclick = ()=>{ stopLiveVisitorPolling(); adminView = "dashboard"; render(); };
+  document.getElementById("openRevenue").onclick = ()=>{ stopLiveVisitorPolling(); adminView = "revenue"; render(); };
   document.getElementById("brandBackToSite").onclick = async ()=>{
+    stopLiveVisitorPolling();
     closeAdmin();
     await boot();
   };
-  document.getElementById("signout").onclick = async ()=>{ await sb.auth.signOut(); refresh(); };
+  document.getElementById("signout").onclick = async ()=>{ stopLiveVisitorPolling(); await sb.auth.signOut(); refresh(); };
 
   const periodBar = document.getElementById("anPeriod");
   periodBar.querySelectorAll("[data-period]").forEach(btn=>{
@@ -5862,7 +5926,7 @@ async function renderAnalytics(){
   });
 
   selectMenu.querySelectorAll("[data-creator]").forEach(opt=>{
-    opt.onclick = ()=>{
+    opt.onclick = async ()=>{
       analyticsCreatorId = opt.dataset.creator;
       selectLabel.textContent = opt.querySelector(".an-select-opt-label").textContent;
       // Avatar der Option (Bild/Farbe/Initiale) 1:1 in den Trigger uebernehmen,
@@ -5876,11 +5940,17 @@ async function renderAnalytics(){
       selectMenu.querySelectorAll("[data-creator]").forEach(o =>
         o.setAttribute("aria-selected", o === opt ? "true" : "false"));
       closeCreatorSelect();
-      refreshAnalyticsBody();
+      // Erst abwarten, bis refreshAnalyticsBody() den KPI-Grid (inkl.
+      // #liveVisitorCount) neu aufgebaut hat -- sonst faende
+      // refreshLiveVisitorCount() das Element noch nicht und wuerde
+      // faelschlich sein eigenes Polling-Intervall stoppen.
+      await refreshAnalyticsBody();
+      refreshLiveVisitorCount();
     };
   });
 
   await refreshAnalyticsBody();
+  startLiveVisitorPolling();
 }
 
 // Laedt/rendert nur den Koerper neu (KPIs, Chart, Top-Produkte, Agenten) — die
@@ -5942,6 +6012,10 @@ async function refreshAnalyticsBody(){
       <div class="an-kpi an-kpi-static">
         <div class="an-kpi-label">${AN_ICON_TARGET} Conversion-Rate</div>
         <div class="an-kpi-value">${agg.conversion.toFixed(1)}<span class="an-kpi-unit">%</span></div>
+      </div>
+      <div class="an-kpi an-kpi-static" title="Besucher, die sich in den letzten 75 Sekunden gemeldet haben">
+        <div class="an-kpi-label"><span class="an-live-dot" aria-hidden="true"></span> Live gerade jetzt</div>
+        <div class="an-kpi-value" id="liveVisitorCount">–</div>
       </div>
     </div>
 
@@ -9157,6 +9231,14 @@ async function boot(){
       // Seitenaufruf nur zaehlen, wenn wirklich ein echter Creator geladen wurde —
       // sonst wuerde jeder fehlerhafte/leere Aufruf faelschlich mitgezaehlt.
       if(CREATOR_ROW) trackEvent("page_view", CREATOR_ROW.slug);
+      // Live-Heartbeat: sofort einmal senden, dann alle 25s wiederholen,
+      // solange dieser Tab offen bleibt. In hasBootedOnce, damit boot()-
+      // Aufrufe nach dem ersten Laden (z.B. Ruecksprung aus dem Admin-Bereich)
+      // keinen zweiten, parallel laufenden Heartbeat-Timer aufmachen.
+      if(CREATOR_ROW){
+        sendLiveHeartbeat();
+        setInterval(sendLiveHeartbeat, LIVE_HEARTBEAT_MS);
+      }
     }
   } catch(e) {
     // Egal was in applyCreator/applyLang/applyView/wireSignupPopup schiefgeht:
