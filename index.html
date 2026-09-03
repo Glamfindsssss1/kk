@@ -7337,7 +7337,11 @@ async function renderRevenue(){
   // Preis, Status, Datum, Bild-URL kommen dann alle aus derselben
   // Weidian-Bestellung, nicht aus einer anderen Quelle vermischt.
   const DEMO_ORDER_STATUS = { paid: "Bezahlt", shipped: "Versendet", pending: "Offen", cancelled: "Storniert" };
-  const demoCreators = state.creators.length ? state.creators : [];
+  // Nur Creator, die tatsaechlich einem Weidian-Shop zugewiesen sind, bekommen
+  // in der Vorschau ueberhaupt fiktive Bestellungen zugeteilt -- sonst wuerde
+  // ein Creator OHNE jede Shop-Verbindung trotzdem einen erfundenen Umsatz
+  // zeigen (sah aus wie echte Zahlen, obwohl gar keine Anbindung existiert).
+  const demoCreators = state.creators.filter(c => c.weidian_shop_id);
   // Platzhalterbilder nur fuer die Layout-Vorschau (ladbare Demo-Bilder) —
   // ersetzt spaeter durch die Bild-URL, die Weidian pro Order mitliefert.
   const DEMO_WEIDIAN_ORDER_PRODUCTS = [
@@ -7460,6 +7464,13 @@ async function renderRevenue(){
   const revenueDisplayValue = hasMargin ? demo.revenue * (revenueMarginPct/100) : demo.revenue;
   const revenueDisplayLabel = hasMargin ? "Gewinn" : "Umsatz";
 
+  // Ein einzeln ausgewaehlter Creator ohne Weidian-Shop bekommt keine
+  // "Vorschau"-Zahlen (siehe demoCreators oben, die zeigen fuer ihn ohnehin
+  // ueberall 0) -- stattdessen einen ehrlichen Hinweis statt des sonst
+  // ueblichen Vorschau-Badges, das hier faelschlich Aktivitaet suggerieren wuerde.
+  const selectedCreatorNoShop = revenueCreatorId !== "all"
+    && !state.creators.find(c => c.id === revenueCreatorId)?.weidian_shop_id;
+
   app.innerHTML = `
     <div class="a-bar">
       <div class="a-bar-in">
@@ -7476,8 +7487,12 @@ async function renderRevenue(){
       <div class="a-card">
         <div class="a-head-row">
           <div style="flex:1 1 auto;min-width:0">
-            <h2 class="a-h2">Weidian-Umsatz${hasRealData ? "" : ` <span class="an-preview-badge" style="vertical-align:middle;margin-left:6px">Vorschau \u2014 Beispieldaten</span>`}</h2>
-            <p class="a-sub">Umsatz und Bestellungen aus den verkn\u00fcpften Weidian-Shops.</p>
+            <h2 class="a-h2">Weidian-Umsatz${selectedCreatorNoShop
+              ? ` <span class="an-preview-badge" style="vertical-align:middle;margin-left:6px;background:#f1f5f9;color:#64748b">Kein Shop verbunden</span>`
+              : (hasRealData ? "" : ` <span class="an-preview-badge" style="vertical-align:middle;margin-left:6px">Vorschau \u2014 Beispieldaten</span>`)}</h2>
+            <p class="a-sub">${selectedCreatorNoShop
+              ? "Diesem Creator ist noch kein Weidian-Shop zugewiesen — sobald einer verknüpft ist, erscheinen hier echte Zahlen."
+              : "Umsatz und Bestellungen aus den verknüpften Weidian-Shops."}</p>
           </div>
           <div class="an-filters" style="flex:0 0 auto">
             <div class="an-period" id="rvPeriod" role="group" aria-label="Zeitraum">
