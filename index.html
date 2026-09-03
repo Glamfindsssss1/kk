@@ -737,7 +737,8 @@
      einfach seine gemerkten Produkte sehen, nicht sie nochmal filtern) —
      anders als bei "Alle Produkte" bleiben sie dort also NICHT stehen. */
   body.wishlist-view .tab-bar-wrap,
-  body.wishlist-view .cat-row-wrap{display:none;}
+  body.wishlist-view .cat-row-wrap,
+  body.wishlist-view .subcat-row{display:none;}
   /* (hover:hover) greift nur bei echten Zeigegeraeten mit Maus — auf Touch/
      Handy bleibt der Hover-Zustand nach dem Antippen sonst haengen (der
      blaue Rahmen faerbt sich ein und bleibt so, bis man woanders hintippt). */
@@ -2529,7 +2530,17 @@ function fuzzySearchWithFallback(query, products){
 
 function filtered(){
   return PRODUCTS.filter(p=>{
-    if(wishOnly && !pageWishlist.includes(p.id)) return false;
+    if(wishOnly) {
+      // Kategorie/Unterkategorie/Style sind in der Wunschliste unsichtbar
+      // (siehe .wishlist-view-Regel oben) -- duerfen deshalb auch nicht mehr
+      // mitfiltern, sonst fehlen gemerkte Produkte aus anderen Kategorien
+      // stillschweigend, nur weil man zuletzt in einer bestimmten Kategorie
+      // unterwegs war. Nur der Preisfilter hat hier noch eine sichtbare
+      // Bedienoberflaeche, bleibt also aktiv.
+      if(!pageWishlist.includes(p.id)) return false;
+      if(p.price < priceMin || p.price > priceMax) return false;
+      return true;
+    }
     if(activeCat !== "all" && p.cat !== activeCat) return false;
     if(activeCat !== "all" && activeSubcat !== "all" && p.subcat !== activeSubcat) return false;
     if(activeStyle !== "ALL" && !p.styles.includes(activeStyle)) return false;
