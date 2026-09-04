@@ -2375,14 +2375,70 @@ let activeSubcat = "all"; // "all" oder ein subcategory-key, gilt innerhalb der 
 let activeCat = "all";
 let activeStyle = "ALL";
 // ---------- Waehrungen ----------
-// Die Preise in PRODUCTS stehen in EUR. Die Kurse hier sind FEST eingetragen,
-// es wird nichts live abgerufen \u2014 bei Bedarf hier von Hand nachziehen.
+// Die Preise in PRODUCTS stehen in EUR. Die Kurse hier sind der Fallback,
+// falls der Live-Abruf (siehe refreshLiveExchangeRates weiter unten) beim
+// ersten Laden noch nicht durch ist oder fehlschlaegt (offline, API down) --
+// nie mehr als ein paar Tage alt, aber bewusst NICHT die alleinige Quelle.
 const BASE_CURRENCY = "EUR";
 const CURRENCIES = {
   EUR: { symbol:"\u20ac", rate:1     },
   USD: { symbol:"$",       rate:1.09  },
   CNY: { symbol:"\u00a5",  rate:7.85  }
 };
+
+// Live-Wechselkurse: frankfurter.app liefert taegliche EZB-Referenzkurse,
+// kostenlos, ohne API-Key, mit CORS-Freigabe (laeuft also direkt aus dem
+// Browser, auch von GitHub Pages aus). Ergebnis wird 24h in localStorage
+// zwischengespeichert, damit nicht bei jedem Seitenaufruf neu abgerufen wird.
+// Schlaegt der Abruf fehl (offline, Dienst down, CORS-Aenderung) bleiben
+// einfach die obigen Fallback-Kurse aktiv -- die Seite darf davon nie
+// blockiert werden, deshalb laeuft das komplett im Hintergrund und ruft im
+// Erfolgsfall applyCurrency() erneut auf, um bereits angezeigte Preise mit
+// den frischen Kursen zu aktualisieren.
+const FX_CACHE_KEY = "creator_fx_rates_v1";
+const FX_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+function applyCachedFxRates(){
+  try {
+    const cached = JSON.parse(localStorage.getItem(FX_CACHE_KEY) || "null");
+    if(!cached || !cached.rates || typeof cached.fetchedAt !== "number") return false;
+    if(Date.now() - cached.fetchedAt > FX_MAX_AGE_MS) return false;
+    Object.entries(cached.rates).forEach(([code, rate]) => {
+      if(CURRENCIES[code] && Number.isFinite(rate) && rate > 0) CURRENCIES[code].rate = rate;
+    });
+    return true;
+  } catch { return false; }
+}
+async function refreshLiveExchangeRates(){
+  const targets = Object.keys(CURRENCIES).filter(c => c !== BASE_CURRENCY);
+  try {
+    const res = await fetch(`https://api.frankfurter.app/latest?from=${BASE_CURRENCY}&to=${targets.join(",")}`);
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const rates = data && data.rates;
+    if(!rates || typeof rates !== "object") throw new Error("Unerwartete Antwort ohne rates");
+    let changed = false;
+    targets.forEach(code => {
+      const rate = Number(rates[code]);
+      if(Number.isFinite(rate) && rate > 0 && CURRENCIES[code]){
+        CURRENCIES[code].rate = rate;
+        changed = true;
+      }
+    });
+    if(changed){
+      localStorage.setItem(FX_CACHE_KEY, JSON.stringify({ rates: Object.fromEntries(targets.map(c => [c, CURRENCIES[c].rate])), fetchedAt: Date.now() }));
+      // applyCurrency() ist eine gehoistete Funktionsdeklaration, also schon
+      // aufrufbar, auch wenn dieser Await erst zeitlich vor applyCurrency()s
+      // Definition im Quelltext steht -- formatiert bereits angezeigte Preise
+      // sofort mit den frischen Kursen neu, statt bis zum naechsten manuellen
+      // Waehrungswechsel zu warten.
+      try { applyCurrency(); } catch(e){ console.warn("applyCurrency() nach Live-Kurs-Update fehlgeschlagen:", e); }
+    }
+  } catch(e) {
+    console.warn("Live-Wechselkurse konnten nicht geladen werden, bleibe bei den hinterlegten Fallback-Kursen:", e);
+  }
+}
+applyCachedFxRates();
+refreshLiveExchangeRates();
 
 let currency = localStorage.getItem("creator_currency");
 if(!CURRENCIES[currency]){
