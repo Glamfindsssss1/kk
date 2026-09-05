@@ -5912,7 +5912,19 @@ async function loadAnalyticsData(){
     : state.creators.find(c => c.id === analyticsCreatorId);
 
   let q = sb.from("analytics_events").select("event_type, product_id, created_at, creator_slug, device_id, country");
-  if(since) q = q.gte("created_at", since.toISOString());
+  if(since) {
+    q = q.gte("created_at", since.toISOString());
+  } else {
+    // "Gesamt" (kein Zeitraum-Cutoff): Sicherheitsnetz gegen Supabases stille
+    // Standard-Zeilenbegrenzung -- derselbe Bug, der beim Umsatz schon einmal
+    // zu niedrige Zahlen zeigte (siehe renderRevenue), bevor er dort durch
+    // genau dieses Muster (Sortierung + Limit) behoben wurde. Ohne das wuerde
+    // "Gesamt" bei wachsendem Event-Aufkommen unbemerkt aeltere Events
+    // verlieren; die Sortierung stellt sicher, dass im (aktuell noch sehr
+    // unwahrscheinlichen) Fall einer Kappung wenigstens die NEUESTEN Events
+    // erhalten bleiben statt einer beliebigen, undefinierten Teilmenge.
+    q = q.order("created_at", { ascending: false }).limit(20000);
+  }
   if(targetCreator) q = q.eq("creator_slug", targetCreator.slug);
 
   const { data, error } = await q;
