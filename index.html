@@ -9605,13 +9605,6 @@ async function loadData(){
   CREATOR.promoLine1   = CREATOR_ROW.discount  || CREATOR_DEFAULTS.promoLine1;
   CREATOR.loginUrl     = CREATOR_ROW.promo_url || "#";
 
-  // Zusätzliche, im Admin-Bereich angelegte Agenten reinladen (falls RLS/Netz
-  // mal Probleme macht, bleiben zumindest die 4 fest einprogrammierten nutzbar).
-  try {
-    const { data: dbAgents } = await sb.from("affiliate_agents").select("*");
-    applyDbAffiliateAgents(dbAgents);
-  } catch(e){ console.warn("affiliate_agents laden fehlgeschlagen:", e); }
-
   // Affiliate-Agent: einmal aus dem Registrierungslink parsen,
   // gilt danach für alle Kaufen-Buttons auf dieser Seite.
   creatorAffiliate = parseCreatorRegisterLink(CREATOR_ROW.promo_url || "");
@@ -9629,12 +9622,42 @@ async function loadData(){
   if(CREATOR_ROW.theme_color)
     document.documentElement.style.setProperty("--accent", CREATOR_ROW.theme_color);
 
+  // Die folgenden vier Abfragen haengen nur von CREATOR_ROW.id ab (bzw. gar
+  // nicht von etwas Creator-Spezifischem), aber NICHT voneinander -- liefen
+  // vorher trotzdem strikt nacheinander (jede wartete auf die vorige), was bei
+  // grossen Katalogen spuerbar zur Ladezeit bis zum ersten sichtbaren Produkt
+  // beitrug (4 Netzwerk-Umlaeufe hintereinander statt parallel). Jetzt alle
+  // gleichzeitig abgeschickt -- jede einzeln per catch abgesichert, damit eine
+  // fehlschlagende Abfrage (z.B. affiliate_agents) die anderen drei nicht mit
+  // reisst (Promise.all wuerde sonst beim ersten Fehler sofort abbrechen).
+  // Promise.resolve(...) um jede Abfrage herum, statt .catch() direkt an den
+  // Supabase-Query-Builder zu haengen -- der Builder ist nur "thenable"
+  // (implementiert .then, aber garantiert kein eigenes .catch/.finally), erst
+  // Promise.resolve() macht daraus ein echtes Promise mit vollem Katalog.
+  const [agentsResult, settingsResult, categoryResult, productsResult] = await Promise.all([
+    Promise.resolve(sb.from("affiliate_agents").select("*"))
+      .catch(e => { console.warn("affiliate_agents laden fehlgeschlagen:", e); return { data: null }; }),
+    Promise.resolve(sb.from("site_settings").select("howto_url, howto_label").eq("id", true).maybeSingle())
+      .catch(e => { console.warn("site_settings laden fehlgeschlagen:", e); return { data: null }; }),
+    loadStorefrontCategoryData()
+      .catch(e => { console.warn("Kategorien/Styles laden fehlgeschlagen:", e); return { cats: null, sty: null, subcats: null }; }),
+    Promise.resolve(sb.from("products").select("*")
+      .eq("creator_id", CREATOR_ROW.id)
+      .eq("is_hidden", false)
+      .order("sort_order", { ascending:true })
+      .order("created_at", { ascending:false })
+      .range(0, PRODUCTS_PAGE_SIZE - 1))
+      .catch(e => { console.warn("Produkte laden fehlgeschlagen:", e); return { data: null }; })
+  ]);
+
+  // Zusätzliche, im Admin-Bereich angelegte Agenten reinladen (falls RLS/Netz
+  // mal Probleme macht, bleiben zumindest die 4 fest einprogrammierten nutzbar).
+  applyDbAffiliateAgents(agentsResult?.data);
+
   // "How to buy"-Button: der individuelle Wert des Creators gewinnt, sonst
   // greift der im "Alle Creator"-Modus gesetzte globale Standard. Ist gar kein
   // Link hinterlegt, bleibt der Button ausgeblendet statt ins Leere zu fuehren.
-  const { data: settingsRow } = await sb
-    .from("site_settings").select("howto_url, howto_label").eq("id", true).maybeSingle();
-
+  const settingsRow = settingsResult?.data;
   const howtoUrl   = CREATOR_ROW.howto_url   || settingsRow?.howto_url   || "";
   const howtoLabel = CREATOR_ROW.howto_label || settingsRow?.howto_label || "(TUTORIAL) HOW TO BUY FROM 🇨🇳";
   // Auf CREATOR gemerkt, damit die Tutorial-Promo-Leiste (siehe wireSignupPopup)
@@ -9673,7 +9696,7 @@ async function loadData(){
     ]);
     return { cats: fallbackCats.data, sty: fallbackSty.data, subcats: fallbackSub.data };
   }
-  const { cats, sty, subcats } = await loadStorefrontCategoryData();
+  const { cats, sty, subcats } = categoryResult;
 
   if(cats && cats.length){
     CATEGORIES.length = 0;
@@ -9694,20 +9717,14 @@ async function loadData(){
 
   SUBCATEGORIES = subcats ?? [];
 
-  // Erste Seite laden statt des gesamten Katalogs auf einmal -- bei sehr
-  // grossen Katalogen (mehrere tausend Produkte) waeren das sonst mehrere MB
-  // reiner JSON-Text, bevor ueberhaupt etwas angezeigt wird. Der Rest wird
-  // direkt danach im Hintergrund nachgeladen (siehe unten) -- passend zum
-  // Prinzip der bereits lazy geladenen Bilder, nur eine Ebene frueher (Daten
-  // statt Bild-Bytes).
-  const { data: prods } = await sb.from("products").select("*")
-    .eq("creator_id", CREATOR_ROW.id)
-    .eq("is_hidden", false)
-    .order("sort_order", { ascending:true })
-    .order("created_at", { ascending:false })
-    .range(0, PRODUCTS_PAGE_SIZE - 1);
-
-  PRODUCTS = (prods ?? []).map(mapProductRow);
+  // Erste Seite kommt bereits aus dem parallelen Block weiter oben (siehe
+  // "Die folgenden vier Abfragen ...") statt hier erst separat nachtraeglich
+  // abgefragt zu werden -- bei sehr grossen Katalogen (mehrere tausend
+  // Produkte) waeren das sonst mehrere MB reiner JSON-Text, bevor ueberhaupt
+  // etwas angezeigt wird. Der Rest wird direkt danach im Hintergrund
+  // nachgeladen (siehe unten) -- passend zum Prinzip der bereits lazy
+  // geladenen Bilder, nur eine Ebene frueher (Daten statt Bild-Bytes).
+  PRODUCTS = (productsResult?.data ?? []).map(mapProductRow);
 
   initPriceFilter();
   wirePriceFilter();
@@ -9718,7 +9735,7 @@ async function loadData(){
   // laesst update() bei Bedarf kurz warten, statt mit unvollstaendigen Daten
   // zu rendern (z.B. wenn direkt nach dem Laden schon eine Kategorie ohne
   // aktiven Style-Filter angeklickt wird, bevor der Rest da ist).
-  if((prods ?? []).length === PRODUCTS_PAGE_SIZE){
+  if((productsResult?.data ?? []).length === PRODUCTS_PAGE_SIZE){
     productsFullyLoaded = false;
     productsFullLoadPromise = new Promise(res => { productsFullLoadResolve = res; });
     loadRemainingProducts(CREATOR_ROW.id, PRODUCTS_PAGE_SIZE);
