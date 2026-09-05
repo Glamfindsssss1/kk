@@ -9680,15 +9680,50 @@ async function loadData(){
   // Creator ausnahmsweise noch keine eigenen Zeilen hat (z.B. uebersehen bei
   // einer frueheren Migration), faellt die Storefront auf die globale
   // Vorlage (creator_id IS NULL) zurueck, damit sie nie komplett leer bleibt.
+  //
+  // Kurzzeitig in localStorage zwischengespeichert (CATEGORY_CACHE_TTL_MS):
+  // Kategorien/Styles/Subcats aendern sich normalerweise selten (Admin passt
+  // sie gelegentlich an, nicht bei jedem Seitenaufruf) -- ein wiederkehrender
+  // Besucher (z.B. jemand, der ueber mehrere Tage per Bookmark zurueckkommt)
+  // spart sich dadurch einen kompletten Netzwerk-Umlauf. Nach Ablauf der TTL
+  // wird ganz normal wieder frisch von Supabase geladen, ein Admin-Update
+  // erscheint also spaetestens nach CATEGORY_CACHE_TTL_MS bei jedem Besucher,
+  // nicht erst nach manuellem Cache-Leeren. Schlaegt localStorage fehl (z.B.
+  // privates Fenster, Speicher voll) faellt das komplett unbemerkt auf den
+  // normalen Netzwerk-Weg zurueck -- nie ein Grund, die Seite zu blockieren.
+  function readCategoryCache(){
+    try {
+      const raw = localStorage.getItem(`sf_catcache_${CREATOR_ROW.id}`);
+      if(!raw) return null;
+      const parsed = JSON.parse(raw);
+      if(!parsed || typeof parsed.cachedAt !== "number") return null;
+      if(Date.now() - parsed.cachedAt > CATEGORY_CACHE_TTL_MS) return null;
+      return { cats: parsed.cats, sty: parsed.sty, subcats: parsed.subcats };
+    } catch { return null; }
+  }
+  function writeCategoryCache(result){
+    try {
+      localStorage.setItem(`sf_catcache_${CREATOR_ROW.id}`, JSON.stringify({ ...result, cachedAt: Date.now() }));
+    } catch { /* z.B. Speicher voll/deaktiviert -- einfach ohne Cache weitermachen */ }
+  }
   async function loadStorefrontCategoryData(){
+    const cached = readCategoryCache();
+    if(cached) return cached;
+
     const [catsRes, styRes, subRes] = await Promise.all([
       sb.from("categories").select("*").eq("creator_id", CREATOR_ROW.id).order("sort_order"),
       sb.from("styles").select("*").eq("creator_id", CREATOR_ROW.id).order("sort_order"),
       sb.from("subcategories").select("*").eq("creator_id", CREATOR_ROW.id).order("sort_order")
     ]);
-    if(catsRes.data?.length) return { cats: catsRes.data, sty: styRes.data, subcats: subRes.data };
+    if(catsRes.data?.length){
+      const result = { cats: catsRes.data, sty: styRes.data, subcats: subRes.data };
+      writeCategoryCache(result);
+      return result;
+    }
     // Fallback auf die globale Vorlage, falls dieser Creator (noch) keine
-    // eigene Kopie hat.
+    // eigene Kopie hat. Wird bewusst NICHT gecacht -- sobald der Creator
+    // eigene Zeilen bekommt, soll das beim naechsten Laden sofort greifen,
+    // ohne auf den Ablauf eines veralteten Fallback-Cache-Eintrags zu warten.
     const [fallbackCats, fallbackSty, fallbackSub] = await Promise.all([
       sb.from("categories").select("*").is("creator_id", null).order("sort_order"),
       sb.from("styles").select("*").is("creator_id", null).order("sort_order"),
@@ -9746,6 +9781,7 @@ async function loadData(){
 }
 
 const PRODUCTS_PAGE_SIZE = 300;
+const CATEGORY_CACHE_TTL_MS = 10 * 60 * 1000; // 10 Minuten, siehe loadStorefrontCategoryData
 let productsFullyLoaded = true;
 let productsFullLoadResolve = null;
 let productsFullLoadPromise = Promise.resolve();
@@ -9766,6 +9802,12 @@ function mapProductRow(p){
   };
 }
 
+// So viele Seiten gleichzeitig nachladen, bevor auf die naechste Gruppe
+// gewartet wird -- rein lesende, voneinander unabhaengige range()-Abfragen
+// gegen dieselbe unveraenderte Sortierung, daher unbedenklich parallel (anders
+// als z.B. der Weidian-Sync gibt es hier kein externes Rate-Limit zu schonen).
+const REMAINING_PRODUCTS_CONCURRENCY = 4;
+
 async function loadRemainingProducts(creatorId, fromOffset){
   // Markiert bei JEDEM Ausstieg (Fehler, fertig, Creator zwischenzeitlich
   // gewechselt) den Ladevorgang als abgeschlossen und weckt update() auf,
@@ -9775,21 +9817,40 @@ async function loadRemainingProducts(creatorId, fromOffset){
     if(CREATOR_ROW && CREATOR_ROW.id === creatorId) productsFullyLoaded = true;
     productsFullLoadResolve?.();
   }
-  let offset = fromOffset;
-  for(;;){
-    const { data, error } = await sb.from("products").select("*")
+  function fetchPage(offset){
+    return Promise.resolve(sb.from("products").select("*")
       .eq("creator_id", creatorId)
       .eq("is_hidden", false)
       .order("sort_order", { ascending:true })
       .order("created_at", { ascending:false })
-      .range(offset, offset + PRODUCTS_PAGE_SIZE - 1);
-    if(error || !data || !data.length) return finish();
+      .range(offset, offset + PRODUCTS_PAGE_SIZE - 1))
+      .catch(error => ({ data: null, error }));
+  }
+  let offset = fromOffset;
+  for(;;){
+    // Eine ganze Gruppe von Folgeseiten gleichzeitig anfragen statt nach jeder
+    // einzelnen Seite auf die naechste zu warten -- die Reihenfolge in
+    // PRODUCTS bleibt trotzdem korrekt, weil die Ergebnisse erst NACH dem
+    // Warten auf die ganze Gruppe der Reihe nach (Seite fuer Seite) angehaengt
+    // werden, nicht in Ankunftsreihenfolge. Jede Seite vor der letzten liefert
+    // garantiert exakt PRODUCTS_PAGE_SIZE Zeilen (feste range()-Grenzen gegen
+    // denselben unveraenderten Datensatz) -- nur die tatsaechlich letzte Seite
+    // kann kuerzer sein oder leer, danach wird sofort abgebrochen.
+    const offsets = Array.from({ length: REMAINING_PRODUCTS_CONCURRENCY }, (_, i) => offset + i * PRODUCTS_PAGE_SIZE);
+    const pages = await Promise.all(offsets.map(fetchPage));
+
     // Falls sich der Creator zwischenzeitlich geaendert hat (schneller Wechsel
     // ueber die URL), diese veralteten Nachlade-Ergebnisse verwerfen.
     if(!CREATOR_ROW || CREATOR_ROW.id !== creatorId) return finish();
-    PRODUCTS.push(...data.map(mapProductRow));
-    if(data.length < PRODUCTS_PAGE_SIZE) return finish();
-    offset += PRODUCTS_PAGE_SIZE;
+
+    let reachedEnd = false;
+    for(const { data, error } of pages){
+      if(error || !data || !data.length){ reachedEnd = true; break; }
+      PRODUCTS.push(...data.map(mapProductRow));
+      if(data.length < PRODUCTS_PAGE_SIZE){ reachedEnd = true; break; }
+    }
+    if(reachedEnd) return finish();
+    offset += REMAINING_PRODUCTS_CONCURRENCY * PRODUCTS_PAGE_SIZE;
   }
 }
 
