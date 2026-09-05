@@ -7382,7 +7382,23 @@ async function renderRevenue(){
     ? realOrdersQuery.gte("order_date", fetchCutoffIso)
     : realOrdersQuery.limit(5000);
   const { data: realOrdersRaw } = await realOrdersQuery;
-  const hasRealData = Array.isArray(realOrdersRaw) && realOrdersRaw.length > 0;
+
+  // WICHTIG: "gibt es fuer DIESEN Zeitraum echte Zeilen" ist etwas anderes als
+  // "ist der Weidian-Sync ueberhaupt angebunden" -- Bestellungen kommen in
+  // Schueben rein (Cron alle 6 Minuten), an der Tagesgrenze (00:00 Uhr Peking-
+  // Zeit, siehe resetDayStartMs) kann "Heute" deshalb voellig legitim 0 echte
+  // Zeilen haben, obwohl der Shop laengst laeuft und z.B. gestern/letzte Woche
+  // reale Bestellungen hatte. Vorher loeste genau das faelschlich die
+  // komplette Demo-Ansicht (erfundene 39-Yuan-Beispielbestellungen) aus, statt
+  // ehrlich "0 Bestellungen heute" zu zeigen -- verwirrend, weil es wie ein
+  // Abbruch der Anbindung aussah. Die Vorschau/Demo-Daten sollen deshalb NUR
+  // erscheinen, wenn wirklich noch NIE irgendeine echte Bestellung
+  // synchronisiert wurde (z.B. vor der ersten Weidian-Verbindung) -- dafuer
+  // reicht eine einzelne indexierte Existenzabfrage ueber die GESAMTE Tabelle,
+  // unabhaengig vom aktuell gewaehlten Zeitraum-Filter.
+  const { data: anyRealRow } = await sb.from("weidian_orders").select("id").limit(1);
+  const everHasRealData = Array.isArray(anyRealRow) && anyRealRow.length > 0;
+  const hasRealData = everHasRealData;
 
   // Fest verdrahtete Beispieldaten, rein fuers Layout — kein Bezug zu echten Shops.
   // demoOrders simuliert das Ergebnis eines Weidian-Order-API-Abrufs 1:1 —
