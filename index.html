@@ -216,7 +216,7 @@
   .social-circle:focus-visible{outline:3px solid rgba(59,102,245,.4);outline-offset:3px;}
   .social-circle svg{width:22px;height:22px;}
   .social-circle.tiktok{background:#000;}
-  .social-circle.instagram{background:radial-gradient(circle at 30% 110%, #fdf497 0%, #fdf497 5%, #fd5949 45%, #d6249f 60%, #285AEB 90%);}
+  .social-circle.telegram{background:linear-gradient(135deg, #66c8f2 0%, #229ED9 55%, #1b7fb3 100%);}
 
   @media (prefers-reduced-motion: reduce){
     .promo-card,.promo-arrow,.social-circle,.icon-circle,.p-buy,.p-heart{transition:none;}
@@ -1662,8 +1662,8 @@
         <a class="social-circle tiktok" id="tiktokLink" href="#" target="_blank" rel="noopener" aria-label="TikTok">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.6 5.82c-1.02-.88-1.6-2.15-1.6-3.5h-3.28v13.5c0 1.62-1.32 2.94-2.94 2.94a2.94 2.94 0 0 1 0-5.88c.27 0 .53.03.78.1V9.7a6.2 6.2 0 0 0-.78-.05A6.24 6.24 0 0 0 2.5 15.88 6.24 6.24 0 0 0 8.78 22.1a6.24 6.24 0 0 0 6.24-6.24V9.28a9.3 9.3 0 0 0 5.48 1.77V7.77a5.7 5.7 0 0 1-3.9-1.95z"/></svg>
         </a>
-        <a class="social-circle instagram" id="instagramLink" href="#" target="_blank" rel="noopener" aria-label="Instagram">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.2" cy="6.8" r="1"/></svg>
+        <a class="social-circle telegram" id="telegramLink" href="#" target="_blank" rel="noopener" aria-label="Telegram">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
         </a>
       </div>
     </div>
@@ -2352,7 +2352,7 @@ const CREATOR = {
   promoLine1: "REGISTER HERE FOR 50% OFF🎉",
   promoLine3: "",                    // optionale zweite Zeile (weisse Pille) — leer lassen = ausgeblendet
   tiktokUrl: "https://www.tiktok.com/",
-  instagramUrl: "https://www.instagram.com/",
+  telegramUrl: "https://t.me/",
   previewCount: 6                    // so viele Karten stehen auf der Startansicht
   // Alle uebrigen Texte stehen in I18N ganz oben — pro Sprache
 };
@@ -2489,7 +2489,7 @@ function applyCreator(){
   document.getElementById("creatorNameMain").textContent = CREATOR.name;
   document.getElementById("creatorNameSub").textContent = CREATOR.nameSub;
   document.getElementById("tiktokLink").href = safeUrl(CREATOR.tiktokUrl);
-  document.getElementById("instagramLink").href = safeUrl(CREATOR.instagramUrl);
+  document.getElementById("telegramLink").href = safeUrl(CREATOR.telegramUrl);
   document.getElementById("promoLine1").textContent = CREATOR.promoLine1;
 
   // Avatar: Bild wenn vorhanden, sonst Initiale
@@ -4081,7 +4081,7 @@ const aesc = (s) => String(s ?? "").replace(/[&<>"']/g, c =>
   ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 
 // Laesst nur echte Web-/Mail-Links durch. Ohne diese Pruefung koennte ein
-// Admin-Feld (Produkt-, Promo-, How-to-, TikTok-/Instagram-Link) auf
+// Admin-Feld (Produkt-, Promo-, How-to-, TikTok-/Telegram-Link) auf
 // "javascript:..." gesetzt werden -- beim Klick wuerde das Skript dann im
 // Browser JEDES Besuchers laufen (gespeichertes XSS ueber sonst harmlose
 // Link-Felder). data:/vbscript: & Co. werden aus demselben Grund geblockt.
@@ -5542,7 +5542,7 @@ function renderDashboard(){
             </div>
           </div>
           <div><label class="a-label" for="c-tiktok">TikTok-Link</label><input id="c-tiktok" class="a-field" type="url" placeholder="https://\u2026"></div>
-          <div><label class="a-label" for="c-insta">Instagram-Link</label><input id="c-insta" class="a-field" type="url" placeholder="https://\u2026"></div>
+          <div><label class="a-label" for="c-telegram">Telegram-Link</label><input id="c-telegram" class="a-field" type="url" placeholder="https://t.me/\u2026"></div>
           <div><label class="a-label" for="c-color">Theme-Farbe</label><input id="c-color" class="a-field" type="color" value="#3b66f5"></div>
 
           <div class="a-full a-block">
@@ -8710,7 +8710,7 @@ function wireDashboard(){
       // Vorbelegen, sonst wuerde Speichern die bestehenden Werte leeren
       setVal("c-name", c.name);         setVal("c-slug", c.slug);
       setVal("c-initial", c.initial);   setVal("c-discount", c.discount);
-      setVal("c-tiktok", c.tiktok);     setVal("c-insta", c.instagram);
+      setVal("c-tiktok", c.tiktok);     setVal("c-telegram", c.telegram);
       setVal("c-promourl", c.promo_url);
       setVal("c-howtolabel", c.howto_label);
       setVal("c-howtourl", c.howto_url);
@@ -8776,7 +8776,7 @@ function wireDashboard(){
       initial: document.getElementById("c-initial").value.trim() || name.charAt(0).toUpperCase(),
       discount: document.getElementById("c-discount").value.trim() || null,
       tiktok: document.getElementById("c-tiktok").value.trim() || null,
-      instagram: document.getElementById("c-insta").value.trim() || null,
+      telegram: document.getElementById("c-telegram").value.trim() || null,
       theme_color: document.getElementById("c-color").value,
       avatar_url: newAvatarUrl || null,
       promo_url: document.getElementById("c-promourl").value.trim() || null,
@@ -9596,7 +9596,7 @@ document.getElementById("brandHome").addEventListener("click", ()=>{
 // Ausgangswerte merken: beim Wechsel auf einen Creator ohne eigene Angaben
 // muessen wir hierhin zurueckfallen, sonst bleiben die Werte des vorigen stehen.
 const CREATOR_DEFAULTS = {
-  tiktokUrl: CREATOR.tiktokUrl, instagramUrl: CREATOR.instagramUrl,
+  tiktokUrl: CREATOR.tiktokUrl, telegramUrl: CREATOR.telegramUrl,
   promoLine1: CREATOR.promoLine1, logoUrl: PROMO_LOGO.url
 };
 
@@ -9626,7 +9626,7 @@ async function loadData(){
   CREATOR.handle        = "@" + CREATOR_ROW.slug;
   CREATOR.avatarInitial = CREATOR_ROW.initial || CREATOR_ROW.name.charAt(0).toUpperCase();
   CREATOR.tiktokUrl    = CREATOR_ROW.tiktok    || CREATOR_DEFAULTS.tiktokUrl;
-  CREATOR.instagramUrl = CREATOR_ROW.instagram || CREATOR_DEFAULTS.instagramUrl;
+  CREATOR.telegramUrl  = CREATOR_ROW.telegram  || CREATOR_DEFAULTS.telegramUrl;
   CREATOR.promoLine1   = CREATOR_ROW.discount  || CREATOR_DEFAULTS.promoLine1;
   CREATOR.loginUrl     = CREATOR_ROW.promo_url || "#";
 
