@@ -7171,8 +7171,11 @@ async function renderShopAssign(){
         atoast(`Weidian meldet f\u00fcr \u201e${name}": ${oneResult.error}`, "err");
         return;
       }
-      showCredRowStatus(credId, `${data?.ordersFetched ?? 0} Bestellungen synchronisiert.`, false);
-      atoast(`\u201e${name}" synchronisiert \u2014 ${data?.ordersFetched ?? 0} Bestellungen.`);
+      const truncatedNote = oneResult?.truncated
+        ? " \u26a0\ufe0f Seitenlimit erreicht \u2014 nicht alle Bestellungen dieses Zeitraums abgerufen, n\u00e4chster Sync versucht es erneut."
+        : "";
+      showCredRowStatus(credId, `${data?.ordersFetched ?? 0} Bestellungen synchronisiert.${truncatedNote}`, !!oneResult?.truncated);
+      atoast(`\u201e${name}" synchronisiert \u2014 ${data?.ordersFetched ?? 0} Bestellungen.${truncatedNote}`);
     };
   });
 
@@ -7237,8 +7240,14 @@ async function renderShopAssign(){
     // zusammengefasste Meldung unter dem grossen Button.
     (data?.results || []).forEach(r => {
       if(r.error) showCredRowStatus(r.id, "Fehler: " + r.error, true);
+      else if(r.truncated) showCredRowStatus(r.id, `${r.ordersFetched ?? 0} Bestellungen synchronisiert. ⚠️ Seitenlimit erreicht — nächster Sync versucht den Rest erneut.`, true);
       else showCredRowStatus(r.id, `${r.ordersFetched ?? 0} Bestellungen synchronisiert.`, false);
     });
+
+    const truncatedShops = (data?.results || []).filter(r => r.truncated);
+    if(truncatedShops.length){
+      atoast(`${truncatedShops.length} Shop(s) haben das Seitenlimit erreicht — nicht alle Bestellungen dieses Laufs abgerufen, wird beim nächsten Sync automatisch nachgeholt.`, "err");
+    }
 
     const failed = (data?.results || []).filter(r => r.error);
     if(failed.length){
